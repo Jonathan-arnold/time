@@ -16,7 +16,7 @@ export default function App() {
   const [active, setActive] = useState<TabId>('transactions')
   const ActiveComponent = TABS.find((t) => t.id === active)!.Component
 
-  // A brief "powering up the time machine" flourish on first load.
+  // A brief calibration flourish on first load.
   const [calibrating, setCalibrating] = useState(true)
   useEffect(() => {
     const id = setTimeout(() => setCalibrating(false), 1800)
@@ -43,14 +43,13 @@ export default function App() {
                 strokeLinejoin="round"
                 className="h-4 w-4"
               >
-                {/* A speedometer-style dial with its needle mid-sweep. */}
-                <path d="M3.5 15a9 9 0 0 1 17 0" />
-                <path d="M12 15l5.5-4" />
-                <circle cx="12" cy="15" r="1.4" fill="currentColor" stroke="none" />
+                {/* A clock dial with hour and minute hands. */}
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3.5 2" />
               </svg>
             </span>
             <h1 className="text-base font-semibold tracking-tight">
-              Time Machine
+              Time
             </h1>
           </div>
 
