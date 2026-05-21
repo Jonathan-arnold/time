@@ -435,10 +435,6 @@ export default function TransactionsTab() {
         <div className="rounded-xl border border-dashed border-slate-300 px-6 py-16 text-center text-sm text-slate-400">
           This day is in the future — nothing to process yet.
         </div>
-      ) : visibleStarts.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-300 px-6 py-16 text-center text-sm text-slate-400">
-          Every block this day is categorized.
-        </div>
       ) : showCategorized ? (
         <ul className="overflow-hidden rounded-xl border border-slate-200 bg-white">
           {pastStarts.map(renderRow)}
@@ -461,7 +457,7 @@ export default function TransactionsTab() {
       )}
 
       {/* The seam between past and present. */}
-      {isToday && !allFuture && toProcess > 0 && (
+      {isToday && !allFuture && (
         <div className="mt-3 flex items-center gap-3">
           <div className="h-px flex-1 bg-gradient-to-r from-transparent to-amber-400" />
           <span className="flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-inset ring-amber-300">
@@ -473,7 +469,7 @@ export default function TransactionsTab() {
       )}
 
       {/* A glimpse of the blocks just ahead — not yet categorizable. */}
-      {isToday && !allFuture && toProcess > 0 && futurePreview.length > 0 && (
+      {isToday && !allFuture && futurePreview.length > 0 && (
         <ul className="mt-3 overflow-hidden rounded-xl border border-dashed border-slate-200 bg-slate-50/60">
           {futurePreview.map((start) => (
             <li
