@@ -113,6 +113,26 @@ export default function BudgetProgress({
     }
   }, [childIds, categories])
 
+  // How far through the period we are: covered-day minutes that have already
+  // elapsed, over the period's total coverage minutes. Past periods read 1,
+  // future periods 0. A row is "ahead of pace" when its assigned/allocated
+  // ratio outruns this.
+  const elapsedFraction = useMemo(() => {
+    const windowLen = budget.coverEnd - budget.coverStart
+    const total = coveredDays.size * windowLen
+    if (total === 0) return 1
+    const now = new Date()
+    const todayIso = isoDate(now)
+    const nowMinute = now.getHours() * 60 + now.getMinutes()
+    let elapsed = 0
+    for (const dayIso of coveredDays) {
+      if (dayIso < todayIso) elapsed += windowLen
+      else if (dayIso === todayIso)
+        elapsed += Math.min(windowLen, Math.max(0, nowMinute - budget.coverStart))
+    }
+    return Math.min(1, elapsed / total)
+  }, [coveredDays, budget.coverStart, budget.coverEnd])
+
   const allocTotal = useMemo(() => rollUp(allocDirect), [rollUp, allocDirect])
   const assignedTotal = useMemo(
     () => rollUp(assignedDirect),
@@ -128,6 +148,18 @@ export default function BudgetProgress({
       (allocTotal.get(category.id) ?? 0) > 0 ||
       (assignedTotal.get(category.id) ?? 0) > 0,
   )
+
+  // Group the visible rows into sections, one per top-level category. Since
+  // any category with subtree activity is shown along with its ancestors, the
+  // row list is contiguous and always opens a section with a depth-0 row.
+  const sections = useMemo(() => {
+    const out: { head: (typeof rows)[number]; children: typeof rows }[] = []
+    for (const row of rows) {
+      if (row.depth === 0) out.push({ head: row, children: [] })
+      else out[out.length - 1]?.children.push(row)
+    }
+    return out
+  }, [rows])
 
   // Period-wide totals across every top-level category.
   const summary = tree
@@ -186,17 +218,35 @@ export default function BudgetProgress({
           Nothing allocated or assigned for this period yet.
         </div>
       ) : (
-        <ul className="divide-y divide-slate-100 border-y border-slate-100">
-          {rows.map(({ category, depth }) => (
-            <ProgressRow
-              key={category.id}
-              category={category}
-              depth={depth}
-              allocated={allocTotal.get(category.id) ?? 0}
-              assigned={assignedTotal.get(category.id) ?? 0}
-            />
-          ))}
-        </ul>
+        <div>
+          <div className="sticky top-0 z-10 flex items-center gap-2.5 border-y border-slate-200 bg-white px-3 py-2 text-[15px] font-medium uppercase tracking-wide text-slate-400">
+            <span className="flex-1">Category</span>
+            <span className="w-20 text-right">Assigned</span>
+            <span className="w-20 text-right">Available</span>
+          </div>
+          <div className="mt-3 space-y-3">
+            {sections.map((section) => (
+              <ul
+                key={section.head.category.id}
+                className="divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-300 bg-white shadow-sm"
+              >
+                {[section.head, ...section.children].map(
+                  ({ category, depth }) => (
+                    <ProgressRow
+                      key={category.id}
+                      category={category}
+                      depth={depth}
+                      topLevel={depth === 0}
+                      allocated={allocTotal.get(category.id) ?? 0}
+                      assigned={assignedTotal.get(category.id) ?? 0}
+                      elapsedFraction={elapsedFraction}
+                    />
+                  ),
+                )}
+              </ul>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   )
@@ -222,60 +272,101 @@ interface ProgressRowProps {
   allocated: number
   /** Minutes actually categorized to this category's subtree this period. */
   assigned: number
+  /** Fraction of the period's covered time that has already elapsed (0–1). */
+  elapsedFraction: number
+  /** Whether this is a top-level category — styled as a section heading. */
+  topLevel: boolean
 }
 
 /** One category's allocated-vs-assigned progress bar. */
-function ProgressRow({ category, depth, allocated, assigned }: ProgressRowProps) {
+function ProgressRow({
+  category,
+  depth,
+  allocated,
+  assigned,
+  elapsedFraction,
+  topLevel,
+}: ProgressRowProps) {
   const unbudgeted = allocated === 0
-  const over = !unbudgeted && assigned > allocated
+  // Over budget: assigned time past the allocation, or any time against a
+  // zero allocation.
+  const over = unbudgeted ? assigned > 0 : assigned > allocated
   const ratio = unbudgeted ? 1 : Math.min(1, assigned / allocated)
-  const pct = unbudgeted
-    ? null
-    : Math.round((assigned / allocated) * 100)
 
-  // Bar fill: amber when there's no allocation to measure against, red when
-  // assigned time has run past the allocation, slate while on track.
-  const fill = unbudgeted
-    ? 'bg-amber-400'
-    : over
-      ? 'bg-red-500'
-      : 'bg-slate-900'
+  // Time still available to spend before hitting the allocation — negative
+  // once over budget.
+  const available = allocated - assigned
+
+  // "Ahead of pace": more of the allocation has been spent than the share of
+  // the period that has elapsed.
+  const aheadOfPace =
+    !over && !unbudgeted && assigned / allocated > elapsedFraction
+
+  // Bar fill: red when over budget (incl. unbudgeted time), amber when
+  // spending is ahead of where the period is, green while on pace.
+  const fill = over
+    ? 'bg-red-500'
+    : aheadOfPace
+      ? 'bg-amber-400'
+      : 'bg-emerald-500'
+
+  // Matching pill colors for the Available figure.
+  const bubble = over
+    ? 'bg-red-100 text-red-700'
+    : aheadOfPace
+      ? 'bg-amber-100 text-amber-700'
+      : 'bg-emerald-100 text-emerald-700'
 
   return (
-    <li className="py-2.5" style={{ paddingLeft: depth * 20 }}>
-      <div className="flex items-center gap-2.5 text-sm">
-        <span
-          className="h-2.5 w-2.5 shrink-0 rounded-full"
-          style={{ backgroundColor: category.color }}
-        />
-        <span className="font-medium text-slate-800">{category.name}</span>
-        <span className="ml-auto tabular-nums">
+    <li
+      className={`flex items-center gap-2.5 px-3 ${
+        topLevel
+          ? 'border-b border-slate-300 bg-white py-3'
+          : 'py-2.5'
+      }`}
+      style={{ paddingLeft: 12 + depth * 20 }}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2.5">
+          <span
+            className={`shrink-0 rounded-full ${
+              topLevel ? 'h-3 w-3' : 'h-2.5 w-2.5'
+            }`}
+            style={{ backgroundColor: category.color }}
+          />
           <span
             className={
-              over
-                ? 'font-medium text-red-600'
-                : 'font-medium text-slate-800'
+              topLevel
+                ? 'text-[15px] font-semibold text-slate-900'
+                : 'text-sm font-medium text-slate-700'
             }
           >
-            {formatDuration(assigned)}
+            {category.name}
           </span>
-          <span className="text-slate-400">
-            {' / '}
-            {unbudgeted ? 'unbudgeted' : formatDuration(allocated)}
-          </span>
-        </span>
-      </div>
-      <div className="mt-1.5 flex items-center gap-2.5">
-        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+        </div>
+        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
           <div
             className={`h-full rounded-full ${fill} transition-all`}
             style={{ width: `${ratio * 100}%` }}
           />
         </div>
-        <span className="w-12 shrink-0 text-right text-xs tabular-nums text-slate-400">
-          {pct === null ? '—' : `${pct}%`}
-        </span>
       </div>
+      <span
+        className={`w-20 shrink-0 text-right tabular-nums text-slate-800 ${
+          topLevel ? 'text-base font-semibold' : 'text-sm font-medium'
+        }`}
+      >
+        {formatDuration(assigned)}
+      </span>
+      <span className="w-20 shrink-0 text-right">
+        <span
+          className={`inline-block rounded-full px-2 py-0.5 tabular-nums ${
+            topLevel ? 'text-sm font-semibold' : 'text-xs font-medium'
+          } ${bubble}`}
+        >
+          {formatDuration(available)}
+        </span>
+      </span>
     </li>
   )
 }
