@@ -10,6 +10,7 @@ import {
   subtreeIds,
   type DropIntent,
 } from '../lib/categories'
+import ColorPicker, { PALETTE } from '../components/ColorPicker'
 
 /** Drag-and-drop state shared with each draggable category row. */
 interface CategoryDnd {
@@ -396,7 +397,7 @@ function CategoryRow({ category, depth, categories, dnd }: CategoryRowProps) {
             <span className="mb-1 block text-xs font-medium text-slate-500">
               Color
             </span>
-            <ColorSwatches value={color} onChange={setColor} />
+            <ColorPicker value={color} onChange={setColor} />
           </div>
 
           <div className="flex gap-2">
@@ -515,41 +516,6 @@ function CategoryRow({ category, depth, categories, dnd }: CategoryRowProps) {
   )
 }
 
-/** Swatch palette offered when creating a category. */
-const PALETTE = [
-  '#6366f1', '#0ea5e9', '#14b8a6', '#10b981', '#84cc16', '#f59e0b',
-  '#f97316', '#ef4444', '#ec4899', '#8b5cf6', '#78716c', '#94a3b8',
-]
-
-/** Reusable palette picker used by the create and edit category forms. */
-function ColorSwatches({
-  value,
-  onChange,
-}: {
-  value: string
-  onChange: (color: string) => void
-}) {
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {PALETTE.map((c) => (
-        <button
-          key={c}
-          type="button"
-          onClick={() => onChange(c)}
-          aria-label={`Color ${c}`}
-          className={
-            'h-6 w-6 rounded-full transition-transform ' +
-            (value === c
-              ? 'ring-2 ring-slate-900 ring-offset-1'
-              : 'hover:scale-110')
-          }
-          style={{ backgroundColor: c }}
-        />
-      ))}
-    </div>
-  )
-}
-
 interface NewCategoryFormProps {
   categories: Category[]
   onDone: () => void
@@ -625,7 +591,7 @@ function NewCategoryForm({
         <span className="mb-1 block text-xs font-medium text-slate-500">
           Color
         </span>
-        <ColorSwatches value={color} onChange={setColor} />
+        <ColorPicker value={color} onChange={setColor} />
       </div>
 
       <div className="flex gap-2">
