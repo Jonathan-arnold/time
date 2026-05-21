@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db'
 import type { Budget, Category } from '../db'
-import { indentCategories } from '../lib/categories'
+import { categoryMap, indentCategories } from '../lib/categories'
 import { formatDuration, formatTimeOfDay } from '../lib/time'
 
 interface BudgetAssignmentProps {
@@ -111,7 +111,6 @@ export default function BudgetAssignment({ budget }: BudgetAssignmentProps) {
     return ids
   }, [tree, minutesByCategory, pending, subtotalByCategory])
   const shown = tree.filter(({ category }) => shownIds.has(category.id))
-  const available = tree.filter(({ category }) => !shownIds.has(category.id))
 
   /** Commit an edited allocation. The incoming value is in the current
    * mode's units; it is converted to a canonical period total for storage.
@@ -237,25 +236,164 @@ export default function BudgetAssignment({ budget }: BudgetAssignmentProps) {
         ))}
       </ul>
 
-      {available.length > 0 && (
-        <select
-          value=""
-          onChange={(e) => {
-            const id = e.target.value
-            if (!id) return
-            setPending((prev) => new Set(prev).add(id))
-            setEditingId(id)
-            e.target.value = ''
-          }}
-          className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 outline-none focus:border-slate-400"
+      <CategoryPicker
+        categories={categories ?? []}
+        shownIds={shownIds}
+        onPick={(id) => {
+          setPending((prev) => new Set(prev).add(id))
+          setEditingId(id)
+        }}
+      />
+    </div>
+  )
+}
+
+interface CategoryPickerProps {
+  categories: Category[]
+  /** Categories already in the allocation list — shown as "Added". */
+  shownIds: Set<string>
+  onPick: (id: string) => void
+}
+
+/**
+ * Drill-down category chooser. Opens at the top-level categories; clicking a
+ * category with children descends into them. A category with children is also
+ * listed at the top of its own sublevel so it can be picked directly.
+ */
+function CategoryPicker({ categories, shownIds, onPick }: CategoryPickerProps) {
+  const [open, setOpen] = useState(false)
+  // Ids from root to the currently-viewed category ([] = top level).
+  const [path, setPath] = useState<string[]>([])
+  const ref = useRef<HTMLDivElement>(null)
+
+  const byId = useMemo(() => categoryMap(categories), [categories])
+  const childrenOf = useMemo(() => {
+    const map = new Map<string, Category[]>()
+    for (const c of categories) {
+      const key = c.parentId ?? ''
+      const arr = map.get(key) ?? []
+      arr.push(c)
+      map.set(key, arr)
+    }
+    for (const arr of map.values()) arr.sort((a, b) => a.order - b.order)
+    return map
+  }, [categories])
+
+  // Close when clicking outside the picker.
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false)
+        setPath([])
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const currentId = path[path.length - 1] ?? ''
+  const currentCat = currentId ? byId.get(currentId) : null
+  const children = childrenOf.get(currentId) ?? []
+
+  function pick(id: string) {
+    onPick(id)
+    setOpen(false)
+    setPath([])
+  }
+
+  function row(c: Category) {
+    const kids = childrenOf.get(c.id) ?? []
+    const added = shownIds.has(c.id)
+    if (kids.length > 0) {
+      return (
+        <button
+          key={c.id}
+          onClick={() => setPath((p) => [...p, c.id])}
+          className="flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-slate-50"
         >
-          <option value="">+ Add a category…</option>
-          {available.map(({ category, depth }) => (
-            <option key={category.id} value={category.id}>
-              {'  '.repeat(depth) + category.name}
-            </option>
-          ))}
-        </select>
+          <span
+            className="h-2.5 w-2.5 shrink-0 rounded-full"
+            style={{ backgroundColor: c.color }}
+          />
+          <span className="font-medium text-slate-800">{c.name}</span>
+          <span className="ml-auto text-slate-300">›</span>
+        </button>
+      )
+    }
+    return (
+      <button
+        key={c.id}
+        disabled={added}
+        onClick={() => pick(c.id)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-slate-50 disabled:cursor-default disabled:opacity-40"
+      >
+        <span
+          className="h-2.5 w-2.5 shrink-0 rounded-full"
+          style={{ backgroundColor: c.color }}
+        />
+        <span className="font-medium text-slate-800">{c.name}</span>
+        {added && (
+          <span className="ml-auto text-xs text-slate-400">Added</span>
+        )}
+      </button>
+    )
+  }
+
+  return (
+    <div ref={ref} className="relative mt-3 inline-block">
+      <button
+        onClick={() => {
+          setOpen((o) => !o)
+          setPath([])
+        }}
+        className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
+      >
+        + Add a category…
+      </button>
+
+      {open && (
+        <div className="absolute z-20 mt-1 w-72 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+          {currentCat ? (
+            <>
+              <button
+                onClick={() => setPath((p) => p.slice(0, -1))}
+                className="flex w-full items-center gap-1 px-3 py-1.5 text-xs font-medium text-slate-400 transition-colors hover:text-slate-700"
+              >
+                ‹ Back
+              </button>
+              <button
+                disabled={shownIds.has(currentCat.id)}
+                onClick={() => pick(currentCat.id)}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-slate-50 disabled:cursor-default disabled:opacity-40"
+              >
+                <span
+                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: currentCat.color }}
+                />
+                <span className="font-medium text-slate-800">
+                  {currentCat.name}
+                </span>
+                <span className="ml-auto text-xs text-slate-400">
+                  {shownIds.has(currentCat.id) ? 'Added' : 'Allocate here'}
+                </span>
+              </button>
+              <div className="my-1 h-px bg-slate-100" />
+            </>
+          ) : (
+            <div className="px-3 py-1.5 text-xs font-medium text-slate-400">
+              Choose a category
+            </div>
+          )}
+
+          {children.length === 0 ? (
+            <div className="px-3 py-2 text-sm text-slate-400">
+              No subcategories.
+            </div>
+          ) : (
+            children.map(row)
+          )}
+        </div>
       )}
     </div>
   )
