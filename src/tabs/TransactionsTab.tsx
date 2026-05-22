@@ -327,7 +327,6 @@ export default function TransactionsTab() {
               anchorBottom: pickerFor.anchorBottom,
             }}
             panelClassName="fixed z-30 w-56 rounded-lg border border-slate-200 bg-white py-1 shadow-xl"
-            flyoutLeft={pickerFor.x > window.innerWidth / 2}
           />
         )}
       </li>
@@ -524,7 +523,6 @@ export default function TransactionsTab() {
                 }}
                 fixedAnchor={bulkPicker}
                 panelClassName="fixed z-40 w-56 rounded-lg border border-slate-200 bg-white py-1 shadow-xl"
-                flyoutLeft={bulkPicker.x > window.innerWidth / 2}
               />
             )}
           </div>
@@ -545,8 +543,8 @@ export default function TransactionsTab() {
 }
 
 /**
- * The shared category-picker panel: budgeted categories up front with their
- * remaining-time figures, the rest behind an "Other" hover flyout. Used both
+ * The shared category-picker panel: every category in a single list, with a
+ * remaining-time figure on any that the active budget allocates. Used both
  * for single-block clicks and the multi-select bar.
  */
 function CategoryPicker({
@@ -556,7 +554,6 @@ function CategoryPicker({
   onPick,
   fixedAnchor,
   panelClassName,
-  flyoutLeft,
 }: {
   catList: IndentedCategory[]
   remainingByCategory: Map<string, number>
@@ -564,7 +561,6 @@ function CategoryPicker({
   onPick: (categoryId: string) => void
   fixedAnchor: { x: number; anchorTop: number; anchorBottom: number }
   panelClassName: string
-  flyoutLeft: boolean
 }) {
   const PANEL_WIDTH = 224 // w-56
   const MARGIN = 8 // keep clear of the viewport edges
@@ -594,7 +590,7 @@ function CategoryPicker({
     setPos({ left, top })
   }, [fixedAnchor])
 
-  // One category row, used in both the main list and the "Other" flyout.
+  // One category row in the picker list.
   const catButton = (category: Category, depth: number) => {
     const rem = remainingByCategory.get(category.id)
     return (
@@ -626,14 +622,6 @@ function CategoryPicker({
     )
   }
 
-  // The main list shows only budgeted categories; everything else hides
-  // behind the "Other" flyout. With no budget, show every category directly.
-  const allocated = catList.filter((c) =>
-    remainingByCategory.has(c.category.id),
-  )
-  const hasBudget = allocated.length > 0
-  const mainList = hasBudget ? allocated : catList
-
   return (
     <div
       ref={panelRef}
@@ -647,28 +635,8 @@ function CategoryPicker({
       className={panelClassName}
     >
       <div className="max-h-72 overflow-y-auto">
-        {mainList.map(({ category, depth }) => catButton(category, depth))}
+        {catList.map(({ category, depth }) => catButton(category, depth))}
       </div>
-
-      {hasBudget && (
-        <div className="group relative border-t border-slate-100">
-          <div className="flex cursor-default items-center justify-between px-3 py-1.5 text-sm text-slate-500 group-hover:bg-slate-100">
-            <span>Other</span>
-            <span aria-hidden>›</span>
-          </div>
-          <div
-            className={
-              'absolute hidden max-h-72 w-56 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-xl group-hover:block ' +
-              (flyoutLeft ? 'right-full -mr-px ' : 'left-full -ml-px ') +
-              // Anchor the flyout's bottom to the row when the panel sits in
-              // the lower half of the screen, so it grows upward, not off-screen.
-              (pos && pos.top > window.innerHeight / 2 ? 'bottom-0' : 'top-0')
-            }
-          >
-            {catList.map(({ category, depth }) => catButton(category, depth))}
-          </div>
-        </div>
-      )}
 
       {showClear && (
         <button
