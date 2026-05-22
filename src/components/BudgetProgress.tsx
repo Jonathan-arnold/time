@@ -297,25 +297,39 @@ function ProgressRow({
   // once over budget.
   const available = allocated - assigned
 
-  // "Ahead of pace": more of the allocation has been spent than the share of
-  // the period that has elapsed.
-  const aheadOfPace =
-    !over && !unbudgeted && assigned / allocated > elapsedFraction
+  // Where the fill would reach if spending exactly tracked the period's
+  // elapsed time — the "on pace" point. Only meaningful for budgeted rows
+  // partway through a live period.
+  const showPaceMarker =
+    !unbudgeted && elapsedFraction > 0 && elapsedFraction < 1
 
-  // Bar fill: red when over budget (incl. unbudgeted time), amber when
-  // spending is ahead of where the period is, green while on pace.
-  const fill = over
-    ? 'bg-red-500'
-    : aheadOfPace
-      ? 'bg-amber-400'
-      : 'bg-emerald-500'
+  // How far spending has strayed from the pace marker, as a share of the
+  // allocation. When there's no live pace to compare against, fall back to a
+  // simple over/under check (full drift if over budget, none otherwise).
+  const drift = showPaceMarker
+    ? Math.abs(assigned / allocated - elapsedFraction)
+    : over
+      ? 1
+      : 0
+
+  // Color tier by distance from pace: green within 15 points either side,
+  // amber within 25, red beyond. Unbudgeted time always reads red.
+  const tier =
+    unbudgeted || drift > 0.25 ? 'red' : drift > 0.15 ? 'amber' : 'green'
+
+  // Bar fill color for the tier.
+  const fill = {
+    red: 'bg-red-500',
+    amber: 'bg-amber-400',
+    green: 'bg-emerald-500',
+  }[tier]
 
   // Matching pill colors for the Available figure.
-  const bubble = over
-    ? 'bg-red-100 text-red-700'
-    : aheadOfPace
-      ? 'bg-amber-100 text-amber-700'
-      : 'bg-emerald-100 text-emerald-700'
+  const bubble = {
+    red: 'bg-red-100 text-red-700',
+    amber: 'bg-amber-100 text-amber-700',
+    green: 'bg-emerald-100 text-emerald-700',
+  }[tier]
 
   return (
     <li
@@ -344,11 +358,36 @@ function ProgressRow({
             {category.name}
           </span>
         </div>
-        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
+        <div className="relative mt-1.5 h-1.5 rounded-full bg-slate-100">
           <div
             className={`h-full rounded-full ${fill} transition-all`}
             style={{ width: `${ratio * 100}%` }}
           />
+          {showPaceMarker && (
+            <>
+              {/* Yellow dots bounding the green "on pace" zone (±15%). */}
+              <span
+                className="absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-400 ring-1 ring-white"
+                style={{
+                  left: `${Math.max(0, elapsedFraction - 0.15) * 100}%`,
+                }}
+              />
+              <span
+                className="absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-400 ring-1 ring-white"
+                style={{
+                  left: `${Math.min(1, elapsedFraction + 0.15) * 100}%`,
+                }}
+              />
+              {/* Green dot at the pace marker itself. */}
+              <span
+                className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-emerald-500 ring-1 ring-white"
+                style={{ left: `${elapsedFraction * 100}%` }}
+                title={`On pace: ${formatDuration(
+                  Math.round(allocated * elapsedFraction),
+                )} of ${formatDuration(allocated)}`}
+              />
+            </>
+          )}
         </div>
       </div>
       <span
