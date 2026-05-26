@@ -99,6 +99,24 @@ export default function BudgetsTab() {
     setSelectedId((prev) => (prev === id ? null : prev))
   }
 
+  async function toggleFavorite(id: string) {
+    const target = (budgets ?? []).find((b) => b.id === id)
+    if (!target) return
+    const next = !target.favorite
+    await mutate(async () => {
+      if (next) {
+        // Clear favorite on every other budget so at most one is favorited.
+        const others = (budgets ?? []).filter(
+          (b) => b.id !== id && b.favorite,
+        )
+        for (const b of others) {
+          await db.budgets.update(b.id, { favorite: false })
+        }
+      }
+      await db.budgets.update(id, { favorite: next })
+    })
+  }
+
   return (
     <div className="grid gap-6 md:grid-cols-[260px_1fr]">
       <aside className="space-y-2">
@@ -174,6 +192,35 @@ export default function BudgetsTab() {
                   {formatOneoffRange(budget.startDate, budget.endDate)}
                 </span>
               )}
+            {budget.type === 'recurring' && (
+              <button
+                onClick={() => toggleFavorite(budget.id)}
+                aria-label={
+                  budget.favorite
+                    ? `Unfavorite ${budget.name}`
+                    : `Favorite ${budget.name}`
+                }
+                aria-pressed={budget.favorite}
+                className={
+                  'shrink-0 rounded-md p-1 transition-opacity ' +
+                  (budget.favorite
+                    ? 'text-amber-400 opacity-100'
+                    : 'text-slate-300 opacity-0 hover:text-amber-400 group-hover:opacity-100')
+                }
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill={budget.favorite ? 'currentColor' : 'none'}
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-3.5 w-3.5"
+                >
+                  <polygon points="12 2 15 9 22 9.5 17 14.5 18.5 22 12 18 5.5 22 7 14.5 2 9.5 9 9 12 2" />
+                </svg>
+              </button>
+            )}
             <button
               onClick={() => deleteBudget(budget.id, budget.name)}
               aria-label={`Delete ${budget.name}`}
@@ -708,6 +755,7 @@ function NewBudgetForm({ type, onCreate, onCancel }: NewBudgetFormProps) {
         startDate: null,
         endDate: null,
         priority: 0,
+        favorite: false,
         createdAt: Date.now(),
       }),
     )

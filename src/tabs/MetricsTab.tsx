@@ -35,6 +35,21 @@ export default function MetricsTab() {
   const [top, setTop] = useState<typeof OVERVIEW | BudgetType>(OVERVIEW)
   /** Selected budget id within the current kind. */
   const [budgetId, setBudgetId] = useState<string | null>(null)
+  /**
+   * On first mount, jump to the favorited recurring budget (if any) so the
+   * user lands on the view they care about instead of Overview.
+   */
+  const defaultedRef = useRef(false)
+  useEffect(() => {
+    if (defaultedRef.current) return
+    if (!budgets) return
+    defaultedRef.current = true
+    const fav = budgets.find((b) => b.type === 'recurring' && b.favorite)
+    if (fav) {
+      setTop('recurring')
+      setBudgetId(fav.id)
+    }
+  }, [budgets])
   /** Drilled-into category id, or null for the all-categories view. */
   const [focusId, setFocusId] = useState<string | null>(null)
   /** Overview date filter, inclusive ISO dates; empty strings mean no filter. */
@@ -328,6 +343,7 @@ export default function MetricsTab() {
           if (!budget) return null
           return (
             <BudgetProgress
+              key={budget.id}
               budget={budget}
               budgets={budgets}
               categories={categories}

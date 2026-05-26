@@ -69,6 +69,12 @@ export interface Budget {
    * Higher wins. One-offs always beat recurring regardless of priority.
    */
   priority: number
+  /**
+   * Whether this is the user's currently-favorited recurring budget. At most
+   * one budget should have this set; favoriting another flips this off
+   * elsewhere.
+   */
+  favorite: boolean
   createdAt: number
 }
 

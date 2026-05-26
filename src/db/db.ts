@@ -71,12 +71,24 @@ export class TimeBudgetDB extends Dexie {
     // v5 adds the sync change log + syncMeta. Existing records are backfilled
     // as synthetic 'put' changes so a user who enables sync after months of
     // local-only use still propagates their history to a second device.
-    this.version(5).stores({
+    const v5to6Stores = {
       ...v1to4Stores,
       changes:
         '++id, [recordType+recordId], [deviceId+seq], pushed, source, updatedAt',
       syncMeta: 'id',
-    })
+    }
+    this.version(5).stores(v5to6Stores)
+    // v6 adds Budget.favorite — existing budgets default to false.
+    this.version(6)
+      .stores(v5to6Stores)
+      .upgrade((tx) =>
+        tx
+          .table('budgets')
+          .toCollection()
+          .modify((b: Budget) => {
+            b.favorite ??= false
+          }),
+      )
   }
 }
 

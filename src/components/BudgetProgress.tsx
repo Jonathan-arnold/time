@@ -38,13 +38,23 @@ export default function BudgetProgress({
   // navigation is disabled for them.
   const [offset, setOffset] = useState(0)
   // Whether to view the whole period at once, or zoom in to a single day.
-  const [scale, setScale] = useState<'period' | 'day'>('period')
+  // Persisted per-budget in localStorage so each budget remembers its last
+  // scale across reloads. The default is 'period' for previously-unseen budgets.
+  const scaleKey = `budgetProgress.scale.${budget.id}`
+  const [scale, setScale] = useState<'period' | 'day'>(() => {
+    if (typeof window === 'undefined') return 'period'
+    const stored = window.localStorage.getItem(scaleKey)
+    return stored === 'day' || stored === 'period' ? stored : 'period'
+  })
 
   // Switching scale would otherwise leave the offset meaning a different
   // span of time — reset so the toggle always lands on "current".
   const setScaleReset = (s: 'period' | 'day') => {
     setScale(s)
     setOffset(0)
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(scaleKey, s)
+    }
   }
 
   const allocations = useLiveQuery(
