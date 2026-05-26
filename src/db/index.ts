@@ -1,4 +1,11 @@
-export { db, TimeBudgetDB } from './db'
+export {
+  db,
+  TimeBudgetDB,
+  mutate,
+  withSuppressedHooks,
+  refreshSeqState,
+  setOnLocalChange,
+} from './db'
 export { ensureSeeded } from './seed'
 export type {
   Block,
@@ -6,6 +13,10 @@ export type {
   BudgetAllocation,
   BudgetType,
   Category,
+  Change,
   Recurrence,
+  SyncMeta,
+  SyncOp,
+  SyncRecordType,
   Weekday,
 } from './types'

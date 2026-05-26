@@ -39,7 +39,7 @@ export default function DaySelector({ value, onChange }: DaySelectorProps) {
       <button
         onClick={() => shift(-1)}
         aria-label="Previous day"
-        className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-100"
+        className="grid h-12 w-12 place-items-center rounded-lg border border-slate-200 bg-white text-lg text-slate-600 transition-colors hover:bg-slate-100 sm:h-9 sm:w-9 sm:text-base"
       >
         ‹
       </button>
@@ -50,7 +50,7 @@ export default function DaySelector({ value, onChange }: DaySelectorProps) {
         onClick={() => shift(1)}
         aria-label="Next day"
         disabled={value >= today}
-        className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 bg-white text-slate-600 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+        className="grid h-12 w-12 place-items-center rounded-lg border border-slate-200 bg-white text-lg text-slate-600 transition-colors hover:bg-slate-100 sm:h-9 sm:w-9 sm:text-base disabled:cursor-not-allowed disabled:opacity-40"
       >
         ›
       </button>
@@ -58,7 +58,7 @@ export default function DaySelector({ value, onChange }: DaySelectorProps) {
       {value !== today && (
         <button
           onClick={() => onChange(today)}
-          className="rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900"
+          className="rounded-lg px-3.5 py-3 text-base font-medium text-slate-500 transition-colors hover:text-slate-900 sm:px-2.5 sm:py-1.5 sm:text-sm"
         >
           Today
         </button>
@@ -94,9 +94,9 @@ function CalendarPopover({ value, onChange }: DaySelectorProps) {
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 transition-colors hover:bg-slate-100"
+        className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 transition-colors hover:bg-slate-100 sm:px-3 sm:py-1.5"
       >
-        <span className="text-sm font-semibold tabular-nums text-slate-900">
+        <span className="text-base font-semibold tabular-nums text-slate-900 sm:text-sm">
           {formatDayLabel(value)}
         </span>
       </button>
@@ -157,13 +157,16 @@ function CalendarPanel({ value, onChange }: DaySelectorProps) {
     <div
       role="dialog"
       aria-label="Choose a date"
-      className="absolute left-1/2 top-full z-20 mt-2 w-72 -translate-x-1/2 rounded-xl border border-slate-200 bg-white p-3 shadow-lg"
+      // On mobile, pin to the viewport (fixed) with margin insets so the
+      // popover always uses the full available width regardless of where the
+      // trigger sits. Desktop keeps the centered-on-trigger absolute popover.
+      className="fixed inset-x-3 top-20 z-20 rounded-xl border border-slate-200 bg-white p-3 shadow-lg sm:absolute sm:inset-x-auto sm:left-1/2 sm:top-full sm:mt-2 sm:w-72 sm:-translate-x-1/2"
     >
       <div className="mb-2 flex items-center justify-between">
         <button
           onClick={() => setViewMonth((m) => addMonths(m, -1))}
           aria-label="Previous month"
-          className="grid h-7 w-7 place-items-center rounded-md text-slate-600 transition-colors hover:bg-slate-100"
+          className="grid h-10 w-10 place-items-center rounded-md text-lg text-slate-600 transition-colors hover:bg-slate-100 sm:h-7 sm:w-7 sm:text-base"
         >
           ‹
         </button>
@@ -173,7 +176,7 @@ function CalendarPanel({ value, onChange }: DaySelectorProps) {
         <button
           onClick={() => setViewMonth((m) => addMonths(m, 1))}
           aria-label="Next month"
-          className="grid h-7 w-7 place-items-center rounded-md text-slate-600 transition-colors hover:bg-slate-100"
+          className="grid h-10 w-10 place-items-center rounded-md text-lg text-slate-600 transition-colors hover:bg-slate-100 sm:h-7 sm:w-7 sm:text-base"
         >
           ›
         </button>
@@ -183,7 +186,7 @@ function CalendarPanel({ value, onChange }: DaySelectorProps) {
         {WEEKDAYS.map((d, i) => (
           <div
             key={i}
-            className="grid h-8 place-items-center text-xs font-medium text-slate-400"
+            className="grid h-10 place-items-center text-sm font-medium text-slate-400 sm:h-8 sm:text-xs"
           >
             {d}
           </div>
@@ -209,7 +212,7 @@ function CalendarPanel({ value, onChange }: DaySelectorProps) {
               disabled={future}
               onClick={() => onChange(isoDate(day))}
               className={[
-                'grid h-8 place-items-center rounded-md text-sm tabular-nums transition-colors',
+                'grid h-12 place-items-center rounded-md text-base tabular-nums transition-colors sm:h-8 sm:text-sm',
                 isSelected
                   ? 'bg-slate-900 font-semibold text-white'
                   : future

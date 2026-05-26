@@ -1,4 +1,4 @@
-import { db } from '../db'
+import { db, mutate } from '../db'
 import type { Budget, Recurrence, Weekday } from '../db'
 import { formatTimeOfDay } from '../lib/time'
 import DateRangePicker from './DateRangePicker'
@@ -26,7 +26,7 @@ interface BudgetScheduleProps {
 /** Scheduling editor for a budget: dates/days and hours covered. */
 export default function BudgetSchedule({ budget }: BudgetScheduleProps) {
   const update = (changes: Partial<Budget>) =>
-    db.budgets.update(budget.id, changes)
+    mutate(() => db.budgets.update(budget.id, changes))
 
   function setRecurrence(recurrence: Recurrence) {
     update({ recurrence })

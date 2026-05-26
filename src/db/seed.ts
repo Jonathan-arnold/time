@@ -1,4 +1,4 @@
-import { db } from './db'
+import { db, mutate } from './db'
 import type { Category } from './types'
 
 /**
@@ -22,6 +22,6 @@ const DEFAULT_CATEGORIES: Category[] = [
 export async function ensureSeeded(): Promise<void> {
   const count = await db.categories.count()
   if (count === 0) {
-    await db.categories.bulkAdd(DEFAULT_CATEGORIES)
+    await mutate(() => db.categories.bulkAdd(DEFAULT_CATEGORIES))
   }
 }

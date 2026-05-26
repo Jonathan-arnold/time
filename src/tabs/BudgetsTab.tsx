@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import BudgetAssignment from '../components/BudgetAssignment'
 import BudgetSchedule from '../components/BudgetSchedule'
-import { db } from '../db'
+import { db, mutate } from '../db'
 import type { Budget, BudgetType, Category } from '../db'
 import {
   indentCategories,
@@ -92,7 +92,7 @@ export default function BudgetsTab() {
   async function deleteBudget(id: string, name: string) {
     if (!confirm(`Delete "${name}"? Its allocations will be removed too.`))
       return
-    await db.transaction('rw', db.budgets, db.budgetAllocations, async () => {
+    await mutate(async () => {
       await db.budgetAllocations.where('budgetId').equals(id).delete()
       await db.budgets.delete(id)
     })
@@ -232,9 +232,11 @@ export default function BudgetsTab() {
                   <button
                     disabled={!isScheduleValid(selected)}
                     onClick={() => {
-                      void db.budgets.update(selected.id, {
-                        scheduleAccepted: true,
-                      })
+                      void mutate(() =>
+                        db.budgets.update(selected.id, {
+                          scheduleAccepted: true,
+                        }),
+                      )
                       setEditingSchedule(false)
                     }}
                     className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
@@ -306,7 +308,7 @@ function CategoryLibrary() {
           dropTarget.id,
           dropTarget.intent,
         )
-        if (next) await db.categories.bulkPut(next)
+        if (next) await mutate(() => db.categories.bulkPut(next))
       }
       setDragId(null)
       setDropTarget(null)
@@ -394,11 +396,13 @@ function CategoryRow({ category, depth, categories, dnd }: CategoryRowProps) {
   async function save() {
     const trimmed = name.trim()
     if (!trimmed) return
-    await db.categories.update(category.id, {
-      name: trimmed,
-      color,
-      parentId: parentId || null,
-    })
+    await mutate(() =>
+      db.categories.update(category.id, {
+        name: trimmed,
+        color,
+        parentId: parentId || null,
+      }),
+    )
     setEditing(false)
   }
 
@@ -412,7 +416,7 @@ function CategoryRow({ category, depth, categories, dnd }: CategoryRowProps) {
           }?`
         : `Delete "${category.name}"?`
     if (!confirm(message)) return
-    await db.categories.bulkDelete([...ids])
+    await mutate(() => db.categories.bulkDelete([...ids]))
   }
 
   if (editing) {
@@ -600,13 +604,15 @@ function NewCategoryForm({
     const parent = parentId || null
     const siblings = categories.filter((c) => c.parentId === parent)
     const order = siblings.reduce((max, c) => Math.max(max, c.order + 1), 0)
-    await db.categories.add({
-      id: crypto.randomUUID(),
-      name: trimmed,
-      parentId: parent,
-      color,
-      order,
-    })
+    await mutate(() =>
+      db.categories.add({
+        id: crypto.randomUUID(),
+        name: trimmed,
+        parentId: parent,
+        color,
+        order,
+      }),
+    )
     setName('')
     setColor(PALETTE[0])
     inputRef.current?.focus()
@@ -687,22 +693,24 @@ function NewBudgetForm({ type, onCreate, onCancel }: NewBudgetFormProps) {
     const trimmed = name.trim()
     if (!trimmed) return
     const id = crypto.randomUUID()
-    await db.budgets.add({
-      id,
-      name: trimmed,
-      type,
-      recurrence: type === 'recurring' ? 'weekly' : null,
-      weekdays: [],
-      monthDays: [],
-      coverStart: 0,
-      coverEnd: 24 * 60,
-      scheduleAccepted: false,
-      allocationMode: 'period',
-      startDate: null,
-      endDate: null,
-      priority: 0,
-      createdAt: Date.now(),
-    })
+    await mutate(() =>
+      db.budgets.add({
+        id,
+        name: trimmed,
+        type,
+        recurrence: type === 'recurring' ? 'weekly' : null,
+        weekdays: [],
+        monthDays: [],
+        coverStart: 0,
+        coverEnd: 24 * 60,
+        scheduleAccepted: false,
+        allocationMode: 'period',
+        startDate: null,
+        endDate: null,
+        priority: 0,
+        createdAt: Date.now(),
+      }),
+    )
     onCreate(id, type)
   }
 
