@@ -16,10 +16,12 @@ interface DateRangePickerProps {
   start: string
   end: string
   onChange: (start: string, end: string) => void
+  /** Which side of the trigger the popup anchors to. Defaults to left. */
+  align?: 'left' | 'right'
 }
 
 /** Flight-search-style range picker: two-month calendar with highlighted range. */
-export default function DateRangePicker({ start, end, onChange }: DateRangePickerProps) {
+export default function DateRangePicker({ start, end, onChange, align = 'left' }: DateRangePickerProps) {
   const [open, setOpen] = useState(false)
   const [hover, setHover] = useState<Date | null>(null)
   const [pendingStart, setPendingStart] = useState<Date | null>(null)
@@ -123,7 +125,7 @@ export default function DateRangePicker({ start, end, onChange }: DateRangePicke
       </button>
 
       {open && (
-        <div className="absolute left-0 z-20 mt-2 rounded-xl border border-slate-200 bg-white p-4 shadow-lg">
+        <div className={`absolute ${align === 'right' ? 'right-0' : 'left-0'} z-20 mt-2 rounded-xl border border-slate-200 bg-white p-4 shadow-lg`}>
           <div className="mb-3 flex items-center justify-between">
             <NavButton onClick={() => setViewMonth((m) => subMonths(m, 1))} aria-label="Previous month">
               <ChevronLeft />

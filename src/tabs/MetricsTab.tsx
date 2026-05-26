@@ -3,8 +3,10 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db'
 import type { BudgetType } from '../db'
 import BudgetProgress from '../components/BudgetProgress'
+import DateRangePicker from '../components/DateRangePicker'
 import { categoryMap } from '../lib/categories'
-import { formatDuration } from '../lib/time'
+import { resolveBudget } from '../lib/budget'
+import { formatDuration, isoDate, parseIsoDate } from '../lib/time'
 
 /** One block of categorized past time is 30 minutes. */
 const BLOCK_MINUTES = 30
@@ -35,6 +37,37 @@ export default function MetricsTab() {
   const [budgetId, setBudgetId] = useState<string | null>(null)
   /** Drilled-into category id, or null for the all-categories view. */
   const [focusId, setFocusId] = useState<string | null>(null)
+  /** Overview date filter, inclusive ISO dates; empty strings mean no filter. */
+  const [rangeStart, setRangeStart] = useState<string>('')
+  const [rangeEnd, setRangeEnd] = useState<string>('')
+  /** Overview budget filter; empty means no budget restriction. */
+  const [budgetFilterIds, setBudgetFilterIds] = useState<string[]>([])
+
+  // Blocks restricted to the Overview filters (date range and/or budget).
+  const filteredBlocks = useMemo(() => {
+    if (!blocks) return blocks
+    const hasRange = !!(rangeStart && rangeEnd)
+    const hasBudget = budgetFilterIds.length > 0 && !!budgets
+    if (!hasRange && !hasBudget) return blocks
+    const lo = hasRange ? parseIsoDate(rangeStart).getTime() : -Infinity
+    const hi = hasRange ? parseIsoDate(rangeEnd).getTime() + 86_400_000 : Infinity
+    const selected = new Set(budgetFilterIds)
+    const dayCache = new Map<string, boolean>()
+    const dayMatchesBudget = (start: number) => {
+      const iso = isoDate(new Date(start))
+      const hit = dayCache.get(iso)
+      if (hit !== undefined) return hit
+      const id = resolveBudget(budgets ?? [], iso)?.id
+      const ok = !!id && selected.has(id)
+      dayCache.set(iso, ok)
+      return ok
+    }
+    return blocks.filter((b) => {
+      if (b.start < lo || b.start >= hi) return false
+      if (hasBudget && !dayMatchesBudget(b.start)) return false
+      return true
+    })
+  }, [blocks, budgets, rangeStart, rangeEnd, budgetFilterIds])
 
   const visibleBudgets = useMemo(() => {
     if (top === OVERVIEW) return []
@@ -94,7 +127,7 @@ export default function MetricsTab() {
       }
       return n
     }
-    for (const b of blocks ?? []) {
+    for (const b of filteredBlocks ?? []) {
       let level = roots
       for (const id of chainOf(b.categoryId)) {
         const node = get(level, id)
@@ -105,7 +138,7 @@ export default function MetricsTab() {
     let total = 0
     for (const r of roots.values()) total += r.minutes
     return { tree: roots, total }
-  }, [blocks, chainOf])
+  }, [filteredBlocks, chainOf])
 
   // The tree node currently drilled into, or null when showing all roots.
   const focusNode = useMemo(() => {
@@ -275,6 +308,19 @@ export default function MetricsTab() {
           total={focusTotal}
           crumbs={crumbs}
           onFocus={setFocusId}
+          rangeStart={rangeStart}
+          rangeEnd={rangeEnd}
+          onRangeChange={(s, e) => {
+            setRangeStart(s)
+            setRangeEnd(e)
+          }}
+          onRangeClear={() => {
+            setRangeStart('')
+            setRangeEnd('')
+          }}
+          budgets={budgets}
+          budgetFilterIds={budgetFilterIds}
+          onBudgetFilterChange={setBudgetFilterIds}
         />
       ) : (
         (() => {
@@ -354,38 +400,106 @@ function Overview({
   total,
   crumbs,
   onFocus,
+  rangeStart,
+  rangeEnd,
+  onRangeChange,
+  onRangeClear,
+  budgets,
+  budgetFilterIds,
+  onBudgetFilterChange,
 }: {
   rings: OuterSlice[][]
   ringCount: number
   total: number
   crumbs: { id: string; name: string }[]
   onFocus: (id: string | null) => void
+  rangeStart: string
+  rangeEnd: string
+  onRangeChange: (start: string, end: string) => void
+  onRangeClear: () => void
+  budgets: import('../db').Budget[]
+  budgetFilterIds: string[]
+  onBudgetFilterChange: (ids: string[]) => void
 }) {
+  const filtered = !!(rangeStart && rangeEnd)
   const slices = rings[0]
   const focused = crumbs.length > 0
   // When focused, the center is the category itself — list its breakdown
   // (the first shell) in the legend rather than the lone center slice.
   const legendSlices = focused && rings[1].length > 0 ? rings[1] : slices
+
+  function setTrailingDays(n: number) {
+    const today = new Date()
+    const start = new Date(today)
+    start.setDate(start.getDate() - (n - 1))
+    onRangeChange(isoDate(start), isoDate(today))
+  }
+
+  const picker = (
+    <div className="flex flex-col items-end gap-2">
+      <div className="flex items-center gap-1">
+        <DateRangePicker
+          start={rangeStart}
+          end={rangeEnd}
+          onChange={onRangeChange}
+          align="right"
+        />
+        <PresetButton onClick={() => setTrailingDays(7)}>Last week</PresetButton>
+        <PresetButton onClick={() => setTrailingDays(30)}>Last month</PresetButton>
+        {filtered && (
+          <button
+            type="button"
+            onClick={onRangeClear}
+            className="rounded-md px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+          >
+            All time
+          </button>
+        )}
+      </div>
+      <BudgetFilterPicker
+        budgets={budgets}
+        selected={budgetFilterIds}
+        onChange={onBudgetFilterChange}
+      />
+    </div>
+  )
+
   if (slices.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-slate-300 px-6 py-16 text-center text-sm text-slate-400">
-        No categorized time here yet — categorize some blocks to see where it
-        goes.
+      <div>
+        <div className="mb-4 flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">
+              Time allocation
+            </h2>
+            <p className="text-sm text-slate-500">
+              {filtered ? 'No categorized time in this range.' : null}
+            </p>
+          </div>
+          {picker}
+        </div>
+        <div className="rounded-xl border border-dashed border-slate-300 px-6 py-16 text-center text-sm text-slate-400">
+          No categorized time here yet — categorize some blocks to see where it
+          goes.
+        </div>
       </div>
     )
   }
 
   return (
     <div>
-      <div className="mb-4">
-        <h2 className="text-lg font-semibold text-slate-900">
-          Time allocation
-        </h2>
-        <p className="text-sm text-slate-500">
-          {formatDuration(total)}
-          {crumbs.length > 0 ? ` in ${crumbs[crumbs.length - 1].name}` : ''} ·
-          click a slice to drill in.
-        </p>
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">
+            Time allocation
+          </h2>
+          <p className="text-sm text-slate-500">
+            {formatDuration(total)}
+            {crumbs.length > 0 ? ` in ${crumbs[crumbs.length - 1].name}` : ''} ·
+            click a slice to drill in.
+          </p>
+        </div>
+        {picker}
       </div>
 
       {/* Breadcrumb trail; each crumb pops the drill-down back to that level. */}
@@ -436,6 +550,265 @@ function Overview({
         </ul>
       </div>
     </div>
+  )
+}
+
+/**
+ * Multi-select budget filter. Trigger button styled like the date picker;
+ * popover lists recurring budgets at the top with one-offs collapsed into
+ * a submenu. Pending selection commits on Accept.
+ */
+function BudgetFilterPicker({
+  budgets,
+  selected,
+  onChange,
+}: {
+  budgets: import('../db').Budget[]
+  selected: string[]
+  onChange: (ids: string[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [pending, setPending] = useState<Set<string>>(new Set(selected))
+  const [showOneoffs, setShowOneoffs] = useState(false)
+  const rootRef = useRef<HTMLDivElement | null>(null)
+
+  const recurring = useMemo(
+    () =>
+      budgets
+        .filter((b) => b.type === 'recurring')
+        .sort((a, b) => a.createdAt - b.createdAt),
+    [budgets],
+  )
+  const oneoffs = useMemo(
+    () =>
+      budgets
+        .filter((b) => b.type === 'oneoff')
+        .sort((a, b) => {
+          const aDate = a.startDate ?? ''
+          const bDate = b.startDate ?? ''
+          if (aDate !== bDate) return aDate.localeCompare(bDate)
+          return a.createdAt - b.createdAt
+        }),
+    [budgets],
+  )
+
+  useEffect(() => {
+    if (!open) return
+    function onDown(e: MouseEvent) {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  function openPicker() {
+    setPending(new Set(selected))
+    setShowOneoffs(oneoffs.some((b) => selected.includes(b.id)))
+    setOpen(true)
+  }
+
+  function toggle(id: string) {
+    setPending((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function commit() {
+    onChange([...pending])
+    setOpen(false)
+  }
+
+  const label = useMemo(() => {
+    if (selected.length === 0) return 'All budgets'
+    if (selected.length === 1) {
+      const b = budgets.find((x) => x.id === selected[0])
+      return b ? b.name : '1 budget'
+    }
+    return `${selected.length} budgets`
+  }, [selected, budgets])
+
+  return (
+    <div ref={rootRef} className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => (open ? setOpen(false) : openPicker())}
+        className={
+          'flex items-center gap-2 rounded-lg border bg-white px-3 py-1.5 text-sm font-medium outline-none transition-colors ' +
+          (open
+            ? 'border-slate-400 text-slate-900'
+            : 'border-slate-200 text-slate-900 hover:border-slate-300')
+        }
+      >
+        <BudgetIcon />
+        <span>{label}</span>
+      </button>
+
+      {open && (
+        <div className="absolute right-0 z-20 mt-2 w-64 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+          {recurring.length === 0 && oneoffs.length === 0 ? (
+            <div className="px-3 py-6 text-center text-xs text-slate-400">
+              No budgets yet.
+            </div>
+          ) : (
+            <ul className="max-h-72 overflow-y-auto">
+              {recurring.map((b) => (
+                <BudgetOption
+                  key={b.id}
+                  label={b.name}
+                  checked={pending.has(b.id)}
+                  onToggle={() => toggle(b.id)}
+                />
+              ))}
+              {oneoffs.length > 0 && (
+                <li>
+                  <button
+                    type="button"
+                    onClick={() => setShowOneoffs((v) => !v)}
+                    className="flex w-full items-center gap-1 rounded-md px-2 py-1.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 hover:bg-slate-50"
+                  >
+                    <Caret open={showOneoffs} />
+                    One-off
+                  </button>
+                  {showOneoffs && (
+                    <ul className="ml-3 border-l border-slate-100 pl-1">
+                      {oneoffs.map((b) => (
+                        <BudgetOption
+                          key={b.id}
+                          label={b.name}
+                          checked={pending.has(b.id)}
+                          onToggle={() => toggle(b.id)}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              )}
+            </ul>
+          )}
+          <div className="mt-2 flex items-center justify-between gap-3 border-t border-slate-100 pt-2">
+            <button
+              type="button"
+              onClick={() => setPending(new Set())}
+              className="rounded-md px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+            >
+              Clear
+            </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="rounded-md px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={commit}
+                className="rounded-md bg-slate-900 px-3 py-1 text-xs font-semibold text-white hover:bg-slate-800"
+              >
+                Accept
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BudgetOption({
+  label,
+  checked,
+  onToggle,
+}: {
+  label: string
+  checked: boolean
+  onToggle: () => void
+}) {
+  return (
+    <li>
+      <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-slate-800 hover:bg-slate-50">
+        <span
+          className={
+            'flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors ' +
+            (checked ? 'border-slate-900 bg-slate-900' : 'border-slate-300 bg-white')
+          }
+        >
+          {checked && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+        </span>
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={onToggle}
+          className="sr-only"
+        />
+        <span className="truncate">{label}</span>
+      </label>
+    </li>
+  )
+}
+
+function Caret({ open }: { open: boolean }) {
+  return (
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={'transition-transform ' + (open ? 'rotate-90' : '')}
+    >
+      <polyline points="9 18 15 12 9 6" />
+    </svg>
+  )
+}
+
+function BudgetIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="text-slate-400"
+    >
+      <path d="M3 6h18M3 12h18M3 18h18" />
+    </svg>
+  )
+}
+
+function PresetButton({
+  children,
+  onClick,
+}: {
+  children: React.ReactNode
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:border-slate-300 hover:text-slate-900"
+    >
+      {children}
+    </button>
   )
 }
 
