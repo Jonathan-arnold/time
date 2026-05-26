@@ -2,6 +2,6 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
-  base: '/time/',
+  base: process.env.VITE_BASE ?? '/time/',
   plugins: [react()],
 })
