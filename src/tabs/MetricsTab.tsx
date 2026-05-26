@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db'
+import type { BudgetType } from '../db'
 import BudgetProgress from '../components/BudgetProgress'
 import { categoryMap } from '../lib/categories'
 import { formatDuration } from '../lib/time'
@@ -28,10 +29,37 @@ export default function MetricsTab() {
   const blocks = useLiveQuery(() => db.blocks.toArray(), [])
   const budgets = useLiveQuery(() => db.budgets.toArray(), [])
 
-  /** Selected view: the overview sentinel, or a budget id. */
-  const [view, setView] = useState<string>(OVERVIEW)
+  /** Top-level tab: overview, or one of the budget kinds. */
+  const [top, setTop] = useState<typeof OVERVIEW | BudgetType>(OVERVIEW)
+  /** Selected budget id within the current kind. */
+  const [budgetId, setBudgetId] = useState<string | null>(null)
   /** Drilled-into category id, or null for the all-categories view. */
   const [focusId, setFocusId] = useState<string | null>(null)
+
+  const visibleBudgets = useMemo(() => {
+    if (top === OVERVIEW) return []
+    const list = (budgets ?? []).filter((b) => b.type === top)
+    return top === 'oneoff'
+      ? list.sort((a, b) => {
+          const aDate = a.startDate ?? ''
+          const bDate = b.startDate ?? ''
+          if (aDate !== bDate) return aDate.localeCompare(bDate)
+          return a.createdAt - b.createdAt
+        })
+      : list.sort((a, b) => a.createdAt - b.createdAt)
+  }, [budgets, top])
+
+  // Keep the selected budget in sync with the active kind: clear it on
+  // Overview, or fall back to the first budget when none is selected or the
+  // current selection doesn't belong to this kind.
+  useEffect(() => {
+    if (top === OVERVIEW) {
+      if (budgetId !== null) setBudgetId(null)
+      return
+    }
+    const match = visibleBudgets.find((b) => b.id === budgetId)
+    if (!match) setBudgetId(visibleBudgets[0]?.id ?? null)
+  }, [top, visibleBudgets, budgetId])
 
   const catById = useMemo(() => categoryMap(categories ?? []), [categories])
 
@@ -201,24 +229,46 @@ export default function MetricsTab() {
 
   return (
     <div>
-      {/* Tab strip: the all-time Overview, then one tab per budget. */}
-      <div className="mb-6 flex flex-wrap gap-1 border-b border-slate-200">
+      {/* Top-level tabs: Overview, Recurring, One-off. */}
+      <div className="mb-4 flex flex-wrap gap-1 border-b border-slate-200">
         <ViewTab
           label="Overview"
-          active={view === OVERVIEW}
-          onClick={() => setView(OVERVIEW)}
+          active={top === OVERVIEW}
+          onClick={() => setTop(OVERVIEW)}
         />
-        {budgets.map((b) => (
-          <ViewTab
-            key={b.id}
-            label={b.name}
-            active={view === b.id}
-            onClick={() => setView(b.id)}
-          />
-        ))}
+        <ViewTab
+          label="Recurring"
+          active={top === 'recurring'}
+          onClick={() => setTop('recurring')}
+        />
+        <ViewTab
+          label="One-off"
+          active={top === 'oneoff'}
+          onClick={() => setTop('oneoff')}
+        />
       </div>
 
-      {view === OVERVIEW ? (
+      {/* Second-row tabs: one per budget in the selected kind. */}
+      {top !== OVERVIEW && (
+        <div className="mb-6 flex flex-wrap gap-1 border-b border-slate-200">
+          {visibleBudgets.length === 0 ? (
+            <div className="px-3.5 py-2 text-sm text-slate-400">
+              No {top === 'recurring' ? 'recurring' : 'one-off'} budgets yet.
+            </div>
+          ) : (
+            visibleBudgets.map((b) => (
+              <ViewTab
+                key={b.id}
+                label={b.name}
+                active={budgetId === b.id}
+                onClick={() => setBudgetId(b.id)}
+              />
+            ))
+          )}
+        </div>
+      )}
+
+      {top === OVERVIEW ? (
         <Overview
           rings={rings}
           ringCount={lastRealRing + 1}
@@ -228,7 +278,7 @@ export default function MetricsTab() {
         />
       ) : (
         (() => {
-          const budget = budgets.find((b) => b.id === view)
+          const budget = visibleBudgets.find((b) => b.id === budgetId)
           if (!budget) return null
           return (
             <BudgetProgress

@@ -25,6 +25,13 @@ interface CategoryDnd {
 /** Sentinel id for the permanent, shared category library "budget". */
 const CATEGORY_LIBRARY = '__categories__'
 
+function formatOneoffDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  if (!y || !m || !d) return iso
+  const date = new Date(y, m - 1, d)
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
 function isScheduleValid(budget: Budget): boolean {
   if (budget.type === 'oneoff') {
     return (
@@ -44,16 +51,33 @@ export default function BudgetsTab() {
   )
   const [creating, setCreating] = useState(false)
   const [editingSchedule, setEditingSchedule] = useState(false)
+  const [kind, setKind] = useState<BudgetType>('recurring')
 
   const budgets = useLiveQuery(() => db.budgets.toArray(), [])
-  const sorted = useMemo(
-    () => [...(budgets ?? [])].sort((a, b) => a.createdAt - b.createdAt),
+  const recurring = useMemo(
+    () =>
+      (budgets ?? [])
+        .filter((b) => b.type === 'recurring')
+        .sort((a, b) => a.createdAt - b.createdAt),
     [budgets],
   )
+  const oneoffs = useMemo(
+    () =>
+      (budgets ?? [])
+        .filter((b) => b.type === 'oneoff')
+        .sort((a, b) => {
+          const aDate = a.startDate ?? ''
+          const bDate = b.startDate ?? ''
+          if (aDate !== bDate) return aDate.localeCompare(bDate)
+          return a.createdAt - b.createdAt
+        }),
+    [budgets],
+  )
+  const visible = kind === 'recurring' ? recurring : oneoffs
   const isLibrary = selectedId === CATEGORY_LIBRARY
   const selected = isLibrary
     ? null
-    : (sorted.find((b) => b.id === selectedId) ?? null)
+    : ((budgets ?? []).find((b) => b.id === selectedId) ?? null)
 
   async function deleteBudget(id: string, name: string) {
     if (!confirm(`Delete "${name}"? Its allocations will be removed too.`))
@@ -98,7 +122,24 @@ export default function BudgetsTab() {
 
         <div className="h-px bg-slate-200" />
 
-        {sorted.map((budget) => (
+        <div className="flex gap-0.5 rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+          {(['recurring', 'oneoff'] as const).map((k) => (
+            <button
+              key={k}
+              onClick={() => setKind(k)}
+              className={
+                'flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors ' +
+                (kind === k
+                  ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200'
+                  : 'text-slate-500 hover:text-slate-900')
+              }
+            >
+              {k === 'recurring' ? 'Recurring' : 'One-off'}
+            </button>
+          ))}
+        </div>
+
+        {visible.map((budget) => (
           <div
             key={budget.id}
             className={
@@ -117,16 +158,11 @@ export default function BudgetsTab() {
             >
               {budget.name}
             </button>
-            <span
-              className={
-                'shrink-0 rounded-md px-1.5 py-0.5 text-xs font-medium ' +
-                (budget.type === 'recurring'
-                  ? 'bg-sky-100 text-sky-700'
-                  : 'bg-amber-100 text-amber-700')
-              }
-            >
-              {budget.type === 'recurring' ? 'Recurring' : 'One-off'}
-            </span>
+            {budget.type === 'oneoff' && budget.startDate && (
+              <span className="shrink-0 text-xs font-medium text-slate-500">
+                {formatOneoffDate(budget.startDate)}
+              </span>
+            )}
             <button
               onClick={() => deleteBudget(budget.id, budget.name)}
               aria-label={`Delete ${budget.name}`}
@@ -149,9 +185,11 @@ export default function BudgetsTab() {
 
         {creating ? (
           <NewBudgetForm
+            initialType={kind}
             onCancel={() => setCreating(false)}
-            onCreate={(id) => {
+            onCreate={(id, type) => {
               setCreating(false)
+              setKind(type)
               setSelectedId(id)
               setEditingSchedule(true)
             }}
@@ -213,8 +251,10 @@ export default function BudgetsTab() {
           </div>
         ) : (
           <div className="rounded-xl border border-dashed border-slate-300 px-6 py-16 text-center text-sm text-slate-400">
-            {sorted.length === 0
-              ? 'No budgets yet — create one to get started.'
+            {visible.length === 0
+              ? kind === 'recurring'
+                ? 'No recurring budgets yet — create one to get started.'
+                : 'No one-off budgets yet — create one to get started.'
               : 'Select a budget to view it.'}
           </div>
         )}
@@ -623,14 +663,15 @@ function NewCategoryForm({
 }
 
 interface NewBudgetFormProps {
-  onCreate: (id: string) => void
+  initialType: BudgetType
+  onCreate: (id: string, type: BudgetType) => void
   onCancel: () => void
 }
 
 /** Inline form for creating a budget — name and type only, for now. */
-function NewBudgetForm({ onCreate, onCancel }: NewBudgetFormProps) {
+function NewBudgetForm({ initialType, onCreate, onCancel }: NewBudgetFormProps) {
   const [name, setName] = useState('')
-  const [type, setType] = useState<BudgetType>('recurring')
+  const [type, setType] = useState<BudgetType>(initialType)
 
   async function submit() {
     const trimmed = name.trim()
@@ -652,7 +693,7 @@ function NewBudgetForm({ onCreate, onCancel }: NewBudgetFormProps) {
       priority: 0,
       createdAt: Date.now(),
     })
-    onCreate(id)
+    onCreate(id, type)
   }
 
   return (
