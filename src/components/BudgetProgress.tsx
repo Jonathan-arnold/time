@@ -3,7 +3,11 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { addDays, addMonths, addWeeks, format } from 'date-fns'
 import { db } from '../db'
 import type { Block, Budget, Category } from '../db'
-import { budgetPeriod, periodCoveredDays } from '../lib/budget'
+import {
+  budgetPeriod,
+  periodCoveredDays,
+  periodScheduledDays,
+} from '../lib/budget'
 import { indentCategories } from '../lib/categories'
 import { formatDuration, isoDate, parseIsoDate } from '../lib/time'
 
@@ -73,26 +77,37 @@ export default function BudgetProgress({
     [budgets, budget, refIso],
   )
 
+  // Days the schedule alone would cover, ignoring any overriding budgets.
+  // Allocation is minutes-per-period, so per-day rate = a.minutes /
+  // scheduledDays. When a one-off overrides some of those days, the
+  // recurring budget's effective period total shrinks proportionally.
+  const scheduledDays = useMemo(
+    () => periodScheduledDays(budget, refIso),
+    [budget, refIso],
+  )
+
   // Whether the focused day in day-scale mode is actually one this budget
   // governs. Period scale always counts as "covered".
   const dayCovered = scale !== 'day' || coveredDays.has(refIso)
 
-  // Minutes allocated directly to each category. In day scale the period
-  // total is split evenly across the period's covered days so each row
-  // shows that day's share of the allocation.
+  // Minutes allocated directly to each category. The per-day allocation rate
+  // is a.minutes / scheduledDays; day scale shows one day's share, while
+  // period scale shows the sum across days the budget actually governs
+  // (overridden days drop out, shrinking the effective period total).
   const allocDirect = useMemo(() => {
     const map = new Map<string, number>()
-    const divisor =
-      scale === 'day' && coveredDays.size > 0 ? coveredDays.size : 1
+    const scheduled = scheduledDays.size
+    const factor =
+      scheduled === 0
+        ? 0
+        : scale === 'day'
+          ? dayCovered ? 1 / scheduled : 0
+          : coveredDays.size / scheduled
     for (const a of allocations ?? []) {
-      if (scale === 'day' && !dayCovered) {
-        map.set(a.categoryId, 0)
-      } else {
-        map.set(a.categoryId, Math.round(a.minutes / divisor))
-      }
+      map.set(a.categoryId, Math.round(a.minutes * factor))
     }
     return map
-  }, [allocations, scale, coveredDays, dayCovered])
+  }, [allocations, scale, coveredDays, scheduledDays, dayCovered])
 
   // Minutes categorized directly to each category within the viewed range —
   // counting only blocks on covered days (or the single day, in day scale)

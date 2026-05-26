@@ -99,3 +99,25 @@ export function periodCoveredDays(
   }
   return days
 }
+
+/**
+ * Days within the budget's current period that match this budget's own
+ * schedule, ignoring any higher-priority budgets that might override it.
+ * This is the denominator for "minutes per scheduled day" — overrides shrink
+ * `periodCoveredDays`, but the per-day allocation rate stays the same.
+ */
+export function periodScheduledDays(
+  budget: Budget,
+  iso: string,
+): Set<string> {
+  const { startIso, endIso } = budgetPeriod(budget, iso)
+  const days = new Set<string>()
+  for (const date of eachDayOfInterval({
+    start: parseIsoDate(startIso),
+    end: parseIsoDate(endIso),
+  })) {
+    const day = isoDate(date)
+    if (budgetCoversDate(budget, day)) days.add(day)
+  }
+  return days
+}
