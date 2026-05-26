@@ -40,7 +40,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-6 py-3">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:gap-4 sm:px-6">
           <div className="flex items-center gap-2.5">
             <span className="grid h-8 w-8 place-items-center rounded-lg bg-slate-900 text-white">
               <svg
@@ -62,29 +62,29 @@ export default function App() {
             </h1>
           </div>
 
-          <div className="flex items-center gap-2">
-          <nav className="flex gap-0.5 rounded-xl border border-slate-200 bg-slate-50 p-1">
+          <div className="order-3 flex w-full items-center gap-2 sm:order-none sm:w-auto">
+          <nav className="flex flex-1 gap-0.5 rounded-xl border border-slate-200 bg-slate-50 p-1 sm:flex-none">
             {TABS.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActive(tab.id)}
                 className={
-                  'rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors ' +
+                  'flex-1 rounded-lg px-3 py-3 text-base font-medium transition-colors sm:flex-none sm:px-3.5 sm:py-1.5 sm:text-sm ' +
                   (active === tab.id
                     ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200'
                     : 'text-slate-500 hover:text-slate-900')
                 }
               >
-                {tab.label}{' '}
-                <span className="font-normal text-slate-400">
-                  — {tab.sub}
+                {tab.label}
+                <span className="hidden font-normal text-slate-400 sm:inline">
+                  {' '}— {tab.sub}
                 </span>
               </button>
             ))}
           </nav>
             <button
               onClick={() => setSyncOpen(true)}
-              className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 transition-colors hover:text-slate-900"
+              className="rounded-lg border border-slate-200 bg-white p-3 text-slate-500 transition-colors hover:text-slate-900 sm:p-2"
               aria-label="Sync settings"
               title="Sync"
             >
@@ -95,7 +95,7 @@ export default function App() {
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                className="h-4 w-4"
+                className="h-5 w-5 sm:h-4 sm:w-4"
               >
                 <path d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-7.4-3.9" />
                 <path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 7.4 3.9" />
@@ -108,7 +108,7 @@ export default function App() {
       </header>
       {syncOpen && <SyncSettings onClose={() => setSyncOpen(false)} />}
 
-      <main className="mx-auto max-w-5xl px-6 py-8">
+      <main className="mx-auto max-w-5xl px-4 py-5 sm:px-6 sm:py-8">
         <ActiveComponent />
       </main>
 

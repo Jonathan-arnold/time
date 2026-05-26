@@ -194,26 +194,34 @@ export default function TransactionsTab() {
     )
   }
 
-  // Click on the selection bubble: toggle/extend the multi-select.
-  function handleBubbleClick(start: number, shiftKey: boolean) {
+  // Click on the selection bubble: toggle a single block, or auto-extend the
+  // selection to every block between the prior anchor and this one. The
+  // second-tap-extends behavior means mobile users get range select without
+  // needing a shift key; tapping the anchor itself clears the selection.
+  function handleBubbleClick(start: number, _shiftKey: boolean) {
     if (!isBlockPast(start, now)) return
     setPickerFor(null)
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (shiftKey && anchor !== null) {
-        const lo = Math.min(anchor, start)
-        const hi = Math.max(anchor, start)
+    const hasAnchor = anchor !== null && selected.size > 0
+    if (hasAnchor && anchor !== start) {
+      const lo = Math.min(anchor!, start)
+      const hi = Math.max(anchor!, start)
+      setSelected((prev) => {
+        const next = new Set(prev)
         for (const s of starts) {
           if (s >= lo && s <= hi && isBlockPast(s, now)) next.add(s)
         }
-      } else if (next.has(start)) {
-        next.delete(start)
-      } else {
-        next.add(start)
-      }
+        return next
+      })
+      // Keep the original anchor so further taps continue to extend the range.
+      return
+    }
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(start)) next.delete(start)
+      else next.add(start)
       return next
     })
-    if (!shiftKey) setAnchor(start)
+    setAnchor((prev) => (prev === start ? null : start))
   }
 
   async function applyCategory(categoryId: string) {
@@ -272,7 +280,7 @@ export default function TransactionsTab() {
         key={start}
         onClick={(e) => handleRowClick(start, e)}
         className={
-          'relative flex cursor-pointer select-none items-center gap-3 border-b border-slate-100 px-3 py-2 text-sm transition-colors last:border-b-0 ' +
+          'relative flex cursor-pointer select-none items-center gap-3 border-b border-slate-100 px-4 py-4 text-base transition-colors last:border-b-0 sm:px-3 sm:py-2 sm:text-sm ' +
           (isSelected || isPicking
             ? 'bg-slate-900/[0.04]'
             : 'hover:bg-slate-50')
@@ -285,24 +293,30 @@ export default function TransactionsTab() {
             e.stopPropagation()
             handleBubbleClick(start, e.shiftKey)
           }}
-          className={
-            'grid h-4 w-4 shrink-0 place-items-center rounded-full border transition-colors ' +
-            (isSelected
-              ? 'border-slate-900 bg-slate-900'
-              : 'border-slate-300 hover:border-slate-500')
-          }
+          // Extra padding extends the hit area on mobile beyond the visible
+          // circle, comfortably exceeding the 44px touch target minimum.
+          className="-m-2 grid shrink-0 place-items-center p-2 sm:m-0 sm:p-0"
         >
-          {isSelected && (
-            <span className="h-1.5 w-1.5 rounded-full bg-white" />
-          )}
+          <span
+            className={
+              'grid h-7 w-7 place-items-center rounded-full border-2 transition-colors sm:h-4 sm:w-4 sm:border ' +
+              (isSelected
+                ? 'border-slate-900 bg-slate-900'
+                : 'border-slate-300 hover:border-slate-500')
+            }
+          >
+            {isSelected && (
+              <span className="h-2.5 w-2.5 rounded-full bg-white sm:h-1.5 sm:w-1.5" />
+            )}
+          </span>
         </button>
-        <span className="w-20 shrink-0 tabular-nums text-slate-500">
+        <span className="w-24 shrink-0 tabular-nums text-slate-500 sm:w-20">
           {formatBlockTime(start)}
         </span>
         {cat ? (
           <span className="flex items-center gap-2">
             <span
-              className="h-2.5 w-2.5 rounded-full"
+              className="h-3 w-3 rounded-full sm:h-2.5 sm:w-2.5"
               style={{ backgroundColor: cat.color }}
             />
             <span className="font-medium text-slate-800">{cat.name}</span>
@@ -392,23 +406,26 @@ export default function TransactionsTab() {
             {visibleStarts.length > 0 && (
               <button
                 onClick={toggleSelectAll}
-                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100"
+                className="rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-base font-medium text-slate-600 transition-colors hover:bg-slate-100 sm:px-2.5 sm:py-1 sm:text-sm"
               >
                 {allSelected ? 'Deselect all' : 'Select all'}
               </button>
             )}
             {categorizedCount > 0 && (
-              <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-500">
+              <label className="flex cursor-pointer items-center gap-2.5 py-2 text-base text-slate-500 sm:gap-2 sm:py-0 sm:text-sm">
                 <input
                   type="checkbox"
                   checked={showCategorized}
                   onChange={(e) => setShowCategorized(e.target.checked)}
-                  className="h-3.5 w-3.5 rounded border-slate-300 accent-slate-900"
+                  className="h-6 w-6 rounded border-slate-300 accent-slate-900 sm:h-3.5 sm:w-3.5"
                 />
-                Show {categorizedCount} categorized
+                <span className="sm:hidden">Show {categorizedCount} done</span>
+                <span className="hidden sm:inline">
+                  Show {categorizedCount} categorized
+                </span>
               </label>
             )}
-            <p className="text-sm text-slate-500">
+            <p className="hidden text-base text-slate-500 sm:block sm:text-sm">
               {toProcess > 0 ? (
                 <>
                   <span className="font-semibold text-slate-900">
@@ -469,10 +486,10 @@ export default function TransactionsTab() {
           {futurePreview.map((start) => (
             <li
               key={start}
-              className="flex select-none items-center gap-3 border-b border-slate-100 px-3 py-2 text-sm last:border-b-0"
+              className="flex select-none items-center gap-3 border-b border-slate-100 px-4 py-4 text-base last:border-b-0 sm:px-3 sm:py-2 sm:text-sm"
             >
-              <span className="h-4 w-4 shrink-0 rounded-full border border-dashed border-slate-300" />
-              <span className="w-20 shrink-0 tabular-nums text-slate-400">
+              <span className="h-7 w-7 shrink-0 rounded-full border-2 border-dashed border-slate-300 sm:h-4 sm:w-4 sm:border" />
+              <span className="w-24 shrink-0 tabular-nums text-slate-400 sm:w-20">
                 {formatBlockTime(start)}
               </span>
               <span className="text-slate-400">Upcoming</span>
@@ -482,8 +499,8 @@ export default function TransactionsTab() {
       )}
 
       {selected.size > 0 && (
-        <div className="sticky bottom-4 mt-4 flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-lg">
-          <span className="text-sm font-medium text-slate-900">
+        <div className="sticky bottom-4 mt-4 flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-lg sm:py-3">
+          <span className="text-base font-medium text-slate-900 sm:text-sm">
             {selected.size} selected
           </span>
           <div onMouseDown={(e) => e.stopPropagation()}>
@@ -501,7 +518,7 @@ export default function TransactionsTab() {
                       },
                 )
               }}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 hover:bg-slate-50"
+              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-3 text-base font-medium text-slate-900 hover:bg-slate-50 sm:px-3 sm:py-1.5 sm:text-sm"
             >
               Categorize as…
               <span aria-hidden className="text-slate-400">
@@ -528,7 +545,7 @@ export default function TransactionsTab() {
               setAnchor(null)
               setBulkPicker(null)
             }}
-            className="ml-auto text-sm font-medium text-slate-500 transition-colors hover:text-slate-900"
+            className="ml-auto px-3 py-3 text-base font-medium text-slate-500 transition-colors hover:text-slate-900 sm:px-0 sm:py-0 sm:text-sm"
           >
             Cancel
           </button>
@@ -567,6 +584,19 @@ function CategoryPicker({
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
   // Ids from root to the currently-viewed category ([] = top level).
   const [path, setPath] = useState<string[]>([])
+  // On narrow viewports the anchored popover doesn't fit; render as a
+  // bottom sheet with a backdrop instead.
+  const [isMobile, setIsMobile] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      window.matchMedia('(max-width: 639px)').matches,
+  )
+  useEffect(() => {
+    const mql = window.matchMedia('(max-width: 639px)')
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+    mql.addEventListener('change', handler)
+    return () => mql.removeEventListener('change', handler)
+  }, [])
 
   const byId = useMemo(() => categoryMap(categories), [categories])
   const childrenOf = useMemo(() => {
@@ -587,8 +617,9 @@ function CategoryPicker({
 
   // After mount (and whenever the panel's size may change), place it so it
   // never spills past a viewport edge: prefer dropping below the anchor, flip
-  // above when there isn't room.
+  // above when there isn't room. Skipped in mobile bottom-sheet mode.
   useLayoutEffect(() => {
+    if (isMobile) return
     const el = panelRef.current
     if (!el) return
     const height = el.offsetHeight
@@ -605,7 +636,7 @@ function CategoryPicker({
       top = Math.max(MARGIN, anchorTop - 4 - height)
     }
     setPos({ left, top })
-  }, [fixedAnchor, path])
+  }, [fixedAnchor, path, isMobile])
 
   // One selectable row — renders the remaining-minutes pill when the active
   // budget allocates to this category.
@@ -634,10 +665,10 @@ function CategoryPicker({
           key={c.id}
           type="button"
           onClick={() => setPath((p) => [...p, c.id])}
-          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100"
+          className="flex w-full items-center gap-2.5 px-4 py-3.5 text-left text-base text-slate-700 hover:bg-slate-100 sm:gap-2 sm:px-3 sm:py-1.5 sm:text-sm"
         >
           <span
-            className="h-2.5 w-2.5 shrink-0 rounded-full"
+            className="h-3.5 w-3.5 shrink-0 rounded-full sm:h-2.5 sm:w-2.5"
             style={{ backgroundColor: c.color }}
           />
           <span className="truncate font-medium text-slate-800">{c.name}</span>
@@ -650,10 +681,10 @@ function CategoryPicker({
         key={c.id}
         type="button"
         onClick={() => onPick(c.id)}
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100"
+        className="flex w-full items-center gap-2.5 px-4 py-3.5 text-left text-base text-slate-700 hover:bg-slate-100 sm:gap-2 sm:px-3 sm:py-1.5 sm:text-sm"
       >
         <span
-          className="h-2.5 w-2.5 shrink-0 rounded-full"
+          className="h-3.5 w-3.5 shrink-0 rounded-full sm:h-2.5 sm:w-2.5"
           style={{ backgroundColor: c.color }}
         />
         <span className="truncate">{c.name}</span>
@@ -662,34 +693,45 @@ function CategoryPicker({
     )
   }
 
+  const panelStyle = isMobile
+    ? undefined
+    : {
+        left: pos?.left ?? fixedAnchor.x,
+        top: pos?.top ?? fixedAnchor.anchorBottom + 4,
+        visibility: (pos ? 'visible' : 'hidden') as 'visible' | 'hidden',
+      }
+  const mobilePanelClass =
+    'fixed inset-x-0 bottom-0 z-40 rounded-t-2xl border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)] pt-1 shadow-2xl'
+
   return (
+    <>
+      {isMobile && (
+        // Tap-through to the document mousedown listener closes the picker.
+        <div className="fixed inset-0 z-30 bg-slate-900/30" />
+      )}
     <div
       ref={panelRef}
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
-      style={{
-        left: pos?.left ?? fixedAnchor.x,
-        top: pos?.top ?? fixedAnchor.anchorBottom + 4,
-        visibility: pos ? 'visible' : 'hidden',
-      }}
-      className={panelClassName}
+      style={panelStyle}
+      className={isMobile ? mobilePanelClass : panelClassName}
     >
       {currentCat && (
         <>
           <button
             type="button"
             onClick={() => setPath((p) => p.slice(0, -1))}
-            className="flex w-full items-center gap-1 px-3 py-1.5 text-left text-xs font-medium text-slate-400 transition-colors hover:text-slate-700"
+            className="flex w-full items-center gap-1 px-4 py-3.5 text-left text-base font-medium text-slate-400 transition-colors hover:text-slate-700 sm:px-3 sm:py-1.5 sm:text-xs"
           >
             ‹ Back
           </button>
           <button
             type="button"
             onClick={() => onPick(currentCat.id)}
-            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100"
+            className="flex w-full items-center gap-2.5 px-4 py-3.5 text-left text-base text-slate-700 hover:bg-slate-100 sm:gap-2 sm:px-3 sm:py-1.5 sm:text-sm"
           >
             <span
-              className="h-2.5 w-2.5 shrink-0 rounded-full"
+              className="h-3.5 w-3.5 shrink-0 rounded-full sm:h-2.5 sm:w-2.5"
               style={{ backgroundColor: currentCat.color }}
             />
             <span className="truncate font-medium text-slate-800">
@@ -705,9 +747,9 @@ function CategoryPicker({
         </>
       )}
 
-      <div className="max-h-72 overflow-y-auto">
+      <div className="max-h-[60vh] overflow-y-auto sm:max-h-72">
         {children.length === 0 ? (
-          <div className="px-3 py-2 text-sm text-slate-400">
+          <div className="px-4 py-3 text-base text-slate-400 sm:px-3 sm:py-2 sm:text-sm">
             No subcategories.
           </div>
         ) : (
@@ -719,11 +761,12 @@ function CategoryPicker({
         <button
           type="button"
           onClick={() => onPick('__clear__')}
-          className="w-full border-t border-slate-100 px-3 py-1.5 text-left text-sm text-slate-500 hover:bg-slate-100"
+          className="w-full border-t border-slate-100 px-4 py-3.5 text-left text-base text-slate-500 hover:bg-slate-100 sm:px-3 sm:py-1.5 sm:text-sm"
         >
           Clear category
         </button>
       )}
     </div>
+    </>
   )
 }
