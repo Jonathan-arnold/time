@@ -194,6 +194,44 @@ export default function BudgetProgress({
     [rollUp, assignedDirect],
   )
 
+  // Color lookup so timeline slots can paint by category.
+  const catColor = useMemo(() => {
+    const map = new Map<string, { color: string; name: string }>()
+    for (const c of categories) map.set(c.id, { color: c.color, name: c.name })
+    return map
+  }, [categories])
+
+  // One 30-min entry per slot in the covered window, in chronological order.
+  // Period mode concatenates each covered day's window; day mode shows one
+  // day. Slots with no categorized block render as empty/gray.
+  const timeline = useMemo(() => {
+    const days =
+      scale === 'day'
+        ? dayCovered
+          ? [refIso]
+          : []
+        : [...coveredDays].sort()
+    if (days.length === 0) return { slots: [], dayLengths: [] as number[] }
+    const byKey = new Map<string, string>()
+    for (const b of blocks) {
+      const d = new Date(b.start)
+      const minute = d.getHours() * 60 + d.getMinutes()
+      byKey.set(`${isoDate(d)}|${minute}`, b.categoryId)
+    }
+    const slots: {
+      day: string
+      minute: number
+      categoryId: string | null
+    }[] = []
+    const perDay = (budget.coverEnd - budget.coverStart) / BLOCK_MINUTES
+    for (const day of days) {
+      for (let m = budget.coverStart; m < budget.coverEnd; m += BLOCK_MINUTES) {
+        slots.push({ day, minute: m, categoryId: byKey.get(`${day}|${m}`) ?? null })
+      }
+    }
+    return { slots, dayLengths: days.map(() => perDay) }
+  }, [blocks, scale, refIso, dayCovered, coveredDays, budget.coverStart, budget.coverEnd])
+
   const tree = useMemo(() => indentCategories(categories), [categories])
 
   // Show a category only if it has an allocation or has time assigned —
@@ -292,6 +330,15 @@ export default function BudgetProgress({
         </div>
       </div>
 
+      {timeline.slots.length > 0 && (
+        <TimelineBar
+          slots={timeline.slots}
+          dayLengths={timeline.dayLengths}
+          catColor={catColor}
+          coverStart={budget.coverStart}
+        />
+      )}
+
       {rows.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-300 px-6 py-16 text-center text-sm text-slate-400">
           Nothing allocated or assigned for this period yet.
@@ -329,6 +376,137 @@ export default function BudgetProgress({
       )}
     </div>
   )
+}
+
+interface TimelineBarProps {
+  slots: { day: string; minute: number; categoryId: string | null }[]
+  /** Number of slots per day, in render order — for vertical day dividers. */
+  dayLengths: number[]
+  catColor: Map<string, { color: string; name: string }>
+  coverStart: number
+}
+
+/**
+ * Horizontal bar showing every 30-min slot in the period in chronological
+ * order. Categorized slots paint with their category color; uncategorized
+ * slots stay neutral. Days are separated by thin dividers.
+ */
+function TimelineBar({ slots, dayLengths, catColor, coverStart }: TimelineBarProps) {
+  const dayStartIndices = useMemo(() => {
+    const out: number[] = []
+    let acc = 0
+    for (const len of dayLengths) {
+      out.push(acc)
+      acc += len
+    }
+    return out
+  }, [dayLengths])
+
+  const [hover, setHover] = useState<{
+    index: number
+    x: number
+    y: number
+  } | null>(null)
+
+  const hovered = hover ? slots[hover.index] : null
+  const hoveredMeta = hovered?.categoryId ? catColor.get(hovered.categoryId) : null
+
+  // Expand the hovered slot outward while the neighbors share its categoryId,
+  // so the tooltip describes the whole contiguous run rather than a single
+  // 30-min cell. Day boundaries do not split a run; we treat the timeline as
+  // a flat sequence of slots.
+  const run = useMemo(() => {
+    if (!hover) return null
+    const target = slots[hover.index].categoryId
+    let lo = hover.index
+    let hi = hover.index
+    while (lo > 0 && slots[lo - 1].categoryId === target) lo--
+    while (hi < slots.length - 1 && slots[hi + 1].categoryId === target) hi++
+    return { lo, hi, length: hi - lo + 1 }
+  }, [hover, slots])
+
+  return (
+    <div className="relative mb-5">
+      <div
+        className="flex h-7 w-full overflow-hidden rounded-md border border-slate-200 bg-slate-50"
+        onMouseLeave={() => setHover(null)}
+      >
+        {slots.map((s, i) => {
+          const meta = s.categoryId ? catColor.get(s.categoryId) : null
+          const isDayStart = dayStartIndices.includes(i) && i !== 0
+          return (
+            <div
+              key={i}
+              className="h-full flex-1"
+              style={{
+                backgroundColor: meta?.color ?? 'transparent',
+                borderLeft: isDayStart ? '1px solid white' : undefined,
+              }}
+              onMouseMove={(ev) => {
+                const box = ev.currentTarget.parentElement?.getBoundingClientRect()
+                setHover({
+                  index: i,
+                  x: ev.clientX - (box?.left ?? 0),
+                  y: ev.clientY - (box?.top ?? 0),
+                })
+              }}
+            />
+          )
+        })}
+      </div>
+      {hovered && run && (() => {
+        const first = slots[run.lo]
+        const last = slots[run.hi]
+        const minutes = run.length * BLOCK_MINUTES
+        const sameDay = first.day === last.day
+        const rangeLabel = sameDay
+          ? `${format(parseIsoDate(first.day), 'EEE MMM d')} · ${formatHour(first.minute)}–${formatHour(last.minute + BLOCK_MINUTES)}`
+          : `${format(parseIsoDate(first.day), 'EEE')} ${formatHour(first.minute)} – ${format(parseIsoDate(last.day), 'EEE')} ${formatHour(last.minute + BLOCK_MINUTES)}`
+        return (
+          <div
+            className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md bg-slate-900 px-2 py-1 text-xs text-white shadow-lg"
+            style={{ left: hover!.x, top: hover!.y - 8 }}
+          >
+            <span className="font-medium">
+              {hoveredMeta?.name ?? 'Uncategorized'}
+            </span>{' '}
+            <span className="text-slate-300">
+              {formatDuration(minutes)} · {rangeLabel}
+            </span>
+          </div>
+        )
+      })()}
+      {dayLengths.length > 1 && (
+        <div className="mt-1 flex text-[10px] text-slate-400">
+          {dayLengths.map((len, i) => (
+            <span
+              key={i}
+              className="text-center"
+              style={{ flex: len }}
+            >
+              {format(parseIsoDate(slots[dayStartIndices[i]].day), 'EEE')}
+            </span>
+          ))}
+        </div>
+      )}
+      {dayLengths.length === 1 && (
+        <div className="mt-1 flex text-[10px] text-slate-400">
+          <span className="flex-1 text-left">
+            {formatHour(coverStart)}
+          </span>
+          <span className="flex-1 text-right">
+            {formatHour(coverStart + dayLengths[0] * BLOCK_MINUTES)}
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function formatHour(minute: number): string {
+  const h = Math.floor(minute / 60) % 24
+  const m = minute % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 }
 
 /** A small circular step button for period navigation. */
