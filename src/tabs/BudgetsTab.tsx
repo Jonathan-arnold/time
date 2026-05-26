@@ -32,6 +32,16 @@ function formatOneoffDate(iso: string): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
+function formatOneoffRange(
+  startIso: string | null,
+  endIso: string | null,
+): string | null {
+  if (!startIso) return null
+  const start = formatOneoffDate(startIso)
+  if (!endIso || endIso === startIso) return start
+  return `${start} – ${formatOneoffDate(endIso)}`
+}
+
 function isScheduleValid(budget: Budget): boolean {
   if (budget.type === 'oneoff') {
     return (
@@ -158,11 +168,12 @@ export default function BudgetsTab() {
             >
               {budget.name}
             </button>
-            {budget.type === 'oneoff' && budget.startDate && (
-              <span className="shrink-0 text-xs font-medium text-slate-500">
-                {formatOneoffDate(budget.startDate)}
-              </span>
-            )}
+            {budget.type === 'oneoff' &&
+              formatOneoffRange(budget.startDate, budget.endDate) && (
+                <span className="shrink-0 text-xs font-medium text-slate-500">
+                  {formatOneoffRange(budget.startDate, budget.endDate)}
+                </span>
+              )}
             <button
               onClick={() => deleteBudget(budget.id, budget.name)}
               aria-label={`Delete ${budget.name}`}
@@ -185,7 +196,7 @@ export default function BudgetsTab() {
 
         {creating ? (
           <NewBudgetForm
-            initialType={kind}
+            type={kind}
             onCancel={() => setCreating(false)}
             onCreate={(id, type) => {
               setCreating(false)
@@ -663,15 +674,14 @@ function NewCategoryForm({
 }
 
 interface NewBudgetFormProps {
-  initialType: BudgetType
+  type: BudgetType
   onCreate: (id: string, type: BudgetType) => void
   onCancel: () => void
 }
 
-/** Inline form for creating a budget — name and type only, for now. */
-function NewBudgetForm({ initialType, onCreate, onCancel }: NewBudgetFormProps) {
+/** Inline form for creating a budget — name only; type is set by the active tab. */
+function NewBudgetForm({ type, onCreate, onCancel }: NewBudgetFormProps) {
   const [name, setName] = useState('')
-  const [type, setType] = useState<BudgetType>(initialType)
 
   async function submit() {
     const trimmed = name.trim()
@@ -706,26 +716,9 @@ function NewBudgetForm({ initialType, onCreate, onCancel }: NewBudgetFormProps) 
           if (e.key === 'Enter') submit()
           if (e.key === 'Escape') onCancel()
         }}
-        placeholder="Budget name"
+        placeholder={type === 'recurring' ? 'Recurring budget name' : 'One-off budget name'}
         className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm outline-none focus:border-slate-400"
       />
-
-      <div className="flex gap-0.5 rounded-lg border border-slate-200 bg-slate-50 p-0.5">
-        {(['recurring', 'oneoff'] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setType(t)}
-            className={
-              'flex-1 rounded-md px-2 py-1 text-xs font-medium transition-colors ' +
-              (type === t
-                ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200'
-                : 'text-slate-500 hover:text-slate-900')
-            }
-          >
-            {t === 'recurring' ? 'Recurring' : 'One-off'}
-          </button>
-        ))}
-      </div>
 
       <div className="flex gap-2">
         <button
