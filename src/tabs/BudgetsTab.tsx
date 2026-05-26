@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import BudgetAssignment from '../components/BudgetAssignment'
 import BudgetSchedule from '../components/BudgetSchedule'
 import { db } from '../db'
-import type { BudgetType, Category } from '../db'
+import type { Budget, BudgetType, Category } from '../db'
 import {
   indentCategories,
   moveCategory,
@@ -24,6 +24,19 @@ interface CategoryDnd {
 
 /** Sentinel id for the permanent, shared category library "budget". */
 const CATEGORY_LIBRARY = '__categories__'
+
+function isScheduleValid(budget: Budget): boolean {
+  if (budget.type === 'oneoff') {
+    return (
+      !!budget.startDate &&
+      !!budget.endDate &&
+      budget.endDate >= budget.startDate
+    )
+  }
+  if (budget.recurrence === 'weekly') return budget.weekdays.length > 0
+  if (budget.recurrence === 'monthly') return budget.monthDays.length > 0
+  return false
+}
 
 export default function BudgetsTab() {
   const [selectedId, setSelectedId] = useState<string | null>(
@@ -158,16 +171,7 @@ export default function BudgetsTab() {
           <CategoryLibrary />
         ) : selected ? (
           <div className="rounded-xl border border-slate-200 bg-white p-6">
-            {selected.type !== 'recurring' ? (
-              <>
-                <h2 className="text-lg font-semibold text-slate-900">
-                  {selected.name}
-                </h2>
-                <p className="mt-1 text-sm text-slate-400">
-                  One-off scheduling coming soon.
-                </p>
-              </>
-            ) : editingSchedule ? (
+            {editingSchedule ? (
               <>
                 <h2 className="text-lg font-semibold text-slate-900">
                   {selected.name}
@@ -177,13 +181,14 @@ export default function BudgetsTab() {
                 </div>
                 <div className="mt-8 border-t border-slate-100 pt-4">
                   <button
+                    disabled={!isScheduleValid(selected)}
                     onClick={() => {
                       void db.budgets.update(selected.id, {
                         scheduleAccepted: true,
                       })
                       setEditingSchedule(false)
                     }}
-                    className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-700"
+                    className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Accept schedule
                   </button>
