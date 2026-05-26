@@ -54,12 +54,17 @@ export async function loadMeta(): Promise<SyncMeta | null> {
  * pulls the existing history. A freshly seeded device also backfills the
  * change log from any pre-existing local rows.
  */
+// Hardcoded sync server. Dev points at the local Wrangler worker; production
+// at the deployed Cloudflare Worker.
+const SYNC_SERVER_URL = import.meta.env.DEV
+  ? 'http://localhost:8787'
+  : 'https://time-sync.jonathan-bryan-arnold.workers.dev'
+
 export async function setupSync(opts: {
-  serverUrl: string
   username: string
   passphrase: string
 }): Promise<{ syncId: string }> {
-  const serverUrl = opts.serverUrl.replace(/\/$/, '')
+  const serverUrl = SYNC_SERVER_URL.replace(/\/$/, '')
   const username = normalizeUsername(opts.username)
   const deviceId = uuidv4()
 
@@ -186,7 +191,7 @@ async function pushAll(meta: SyncMeta): Promise<number> {
   const body = JSON.stringify({ rows } satisfies PushRequest)
   const path = `/sync/${meta.syncId}/push`
   const sig = await signRequest(kAuth, 'POST', path, meta.syncId, body)
-  const res = await fetch(`${meta.serverUrl}${path}`, {
+  const res = await fetch(`${SYNC_SERVER_URL.replace(/\/$/, '')}${path}`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -211,7 +216,7 @@ async function pullAll(meta: SyncMeta): Promise<number> {
   const path = `/sync/${meta.syncId}/pull`
   const body = JSON.stringify({ cursors })
   const sig = await signRequest(kAuth, 'POST', path, meta.syncId, body)
-  const res = await fetch(`${meta.serverUrl}${path}`, {
+  const res = await fetch(`${SYNC_SERVER_URL.replace(/\/$/, '')}${path}`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',

@@ -118,7 +118,6 @@ function SetupForm({
   onBack: () => void
   onDone: () => void
 }) {
-  const [serverUrl, setServerUrl] = useState('http://localhost:8787')
   const [username, setUsername] = useState('')
   const [passphrase, setPassphrase] = useState('')
   const [confirmPassphrase, setConfirmPassphrase] = useState('')
@@ -142,7 +141,7 @@ function SetupForm({
     }
     setBusy(true)
     try {
-      await setupSync({ serverUrl, username, passphrase })
+      await setupSync({ username, passphrase })
       // Push the freshly backfilled rows and pull any history from peers.
       scheduleSync(0)
       if (mode === 'new') {
@@ -186,7 +185,6 @@ function SetupForm({
 
   return (
     <div className="space-y-3">
-      <Field label="Server URL" value={serverUrl} onChange={setServerUrl} />
       <Field label="Username" value={username} onChange={setUsername} />
       <Field
         label="Passphrase"
@@ -241,7 +239,6 @@ function ConfiguredView({
   return (
     <div className="space-y-4">
       <dl className="space-y-2 text-xs">
-        <Row label="Server" value={meta.serverUrl} />
         <Row label="Username" value={meta.username} mono />
         <Row label="Device" value={meta.deviceId} mono />
         <Row
