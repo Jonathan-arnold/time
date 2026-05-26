@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   addDays,
   addMonths,
@@ -12,7 +12,15 @@ import {
   startOfMonth,
   startOfWeek,
 } from 'date-fns'
-import { formatDayLabel, isoDate, parseIsoDate } from '../lib/time'
+import { useLiveQuery } from 'dexie-react-hooks'
+import { db } from '../db'
+import {
+  BLOCK_MS,
+  BLOCKS_PER_DAY,
+  formatDayLabel,
+  isoDate,
+  parseIsoDate,
+} from '../lib/time'
 
 interface DaySelectorProps {
   /** Selected day as a `yyyy-MM-dd` string. */
@@ -119,6 +127,32 @@ function CalendarPanel({ value, onChange }: DaySelectorProps) {
     end: endOfWeek(endOfMonth(viewMonth)),
   })
 
+  // Count categorized blocks per day in the visible grid, so days where every
+  // past 30-min block has been assigned can show green and partial days yellow.
+  const rangeStart = days[0].getTime()
+  const rangeEnd = days[days.length - 1].getTime() + 24 * 60 * 60 * 1000
+  const monthBlocks = useLiveQuery(
+    () =>
+      db.blocks
+        .where('start')
+        .between(rangeStart, rangeEnd, true, false)
+        .toArray(),
+    [rangeStart, rangeEnd],
+  )
+  const categorizedByDay = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const b of monthBlocks ?? []) {
+      const k = isoDate(new Date(b.start))
+      m.set(k, (m.get(k) ?? 0) + 1)
+    }
+    return m
+  }, [monthBlocks])
+  const nowMs = today.getTime()
+  function pastBlockCount(day: Date) {
+    const elapsed = Math.floor((nowMs - day.getTime()) / BLOCK_MS)
+    return Math.max(0, Math.min(BLOCKS_PER_DAY, elapsed))
+  }
+
   return (
     <div
       role="dialog"
@@ -159,6 +193,16 @@ function CalendarPanel({ value, onChange }: DaySelectorProps) {
           const isSelected = isSameDay(day, selected)
           const isToday = isSameDay(day, today)
           const muted = !isSameMonth(day, viewMonth)
+          const past = future ? 0 : pastBlockCount(day)
+          const cat = categorizedByDay.get(isoDate(day)) ?? 0
+          const status: 'complete' | 'partial' | null =
+            past === 0 ? null : cat >= past ? 'complete' : 'partial'
+          const statusClass =
+            !isSelected && status === 'complete'
+              ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+              : !isSelected && status === 'partial'
+                ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                : ''
           return (
             <button
               key={day.getTime()}
@@ -170,14 +214,13 @@ function CalendarPanel({ value, onChange }: DaySelectorProps) {
                   ? 'bg-slate-900 font-semibold text-white'
                   : future
                     ? 'cursor-not-allowed text-slate-300'
-                    : 'hover:bg-slate-100',
-                !isSelected && isToday && 'font-semibold text-slate-900',
-                !isSelected && !isToday && !future && muted
-                  ? 'text-slate-400'
-                  : '',
-                !isSelected && !isToday && !future && !muted
-                  ? 'text-slate-700'
-                  : '',
+                    : statusClass || 'hover:bg-slate-100',
+                !isSelected && isToday && 'font-semibold',
+                !isSelected &&
+                  !isToday &&
+                  !future &&
+                  !status &&
+                  (muted ? 'text-slate-400' : 'text-slate-700'),
               ]
                 .filter(Boolean)
                 .join(' ')}
