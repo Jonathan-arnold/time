@@ -1,7 +1,7 @@
-import { forwardRef, useRef } from 'react'
 import { db } from '../db'
 import type { Budget, Recurrence, Weekday } from '../db'
 import { formatTimeOfDay } from '../lib/time'
+import DateRangePicker from './DateRangePicker'
 
 const WEEKDAYS: { value: Weekday; label: string }[] = [
   { value: 0, label: 'Sun' },
@@ -51,15 +51,12 @@ export default function BudgetSchedule({ budget }: BudgetScheduleProps) {
     return (
       <div className="space-y-7">
         <Field label="Dates">
-          <OneOffDateRange
+          <DateRangePicker
             start={start}
             end={end}
-            onStartChange={(startDate) => {
-              const changes: Partial<Budget> = { startDate }
-              if (end && startDate && end < startDate) changes.endDate = startDate
-              update(changes)
-            }}
-            onEndChange={(endDate) => update({ endDate })}
+            onChange={(startDate, endDate) =>
+              update({ startDate: startDate || null, endDate: endDate || null })
+            }
           />
           {rangeInvalid && (
             <p className="mt-2 text-xs text-red-500">
@@ -196,64 +193,6 @@ function Field({
     </div>
   )
 }
-
-function OneOffDateRange({
-  start,
-  end,
-  onStartChange,
-  onEndChange,
-}: {
-  start: string
-  end: string
-  onStartChange: (iso: string) => void
-  onEndChange: (iso: string) => void
-}) {
-  const endRef = useRef<HTMLInputElement | null>(null)
-  return (
-    <div className="flex items-center gap-2">
-      <DateInput
-        value={start}
-        max={end || undefined}
-        onChange={(iso) => {
-          onStartChange(iso)
-          if (iso) {
-            // Defer to next tick so React commits the new max before we open the picker.
-            setTimeout(() => endRef.current?.showPicker?.(), 0)
-          }
-        }}
-      />
-      <span className="text-sm text-slate-400">to</span>
-      <DateInput
-        ref={endRef}
-        value={end}
-        min={start || undefined}
-        onChange={onEndChange}
-      />
-    </div>
-  )
-}
-
-const DateInput = forwardRef<
-  HTMLInputElement,
-  {
-    value: string
-    min?: string
-    max?: string
-    onChange: (iso: string) => void
-  }
->(function DateInput({ value, min, max, onChange }, ref) {
-  return (
-    <input
-      ref={ref}
-      type="date"
-      value={value}
-      min={min}
-      max={max}
-      onChange={(e) => onChange(e.target.value)}
-      className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-900 outline-none focus:border-slate-400"
-    />
-  )
-})
 
 function TimeSelect({
   value,
