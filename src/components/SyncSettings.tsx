@@ -96,14 +96,14 @@ function Menu({ onPick }: { onPick: (m: Mode) => void }) {
         className="w-full rounded-lg border border-slate-200 px-4 py-3 text-left text-sm hover:border-slate-300 hover:bg-slate-50"
       >
         <div className="font-medium text-slate-900">Set up new sync</div>
-        <div className="text-xs text-slate-500">First device. You'll pick a passphrase and get a sync ID.</div>
+        <div className="text-xs text-slate-500">First device. Pick a username and passphrase.</div>
       </button>
       <button
         onClick={() => onPick('join')}
         className="w-full rounded-lg border border-slate-200 px-4 py-3 text-left text-sm hover:border-slate-300 hover:bg-slate-50"
       >
         <div className="font-medium text-slate-900">Join existing sync</div>
-        <div className="text-xs text-slate-500">Second device. Enter the sync ID and passphrase from the first.</div>
+        <div className="text-xs text-slate-500">Second device. Enter the same username and passphrase from the first.</div>
       </button>
     </div>
   )
@@ -119,15 +119,19 @@ function SetupForm({
   onDone: () => void
 }) {
   const [serverUrl, setServerUrl] = useState('http://localhost:8787')
+  const [username, setUsername] = useState('')
   const [passphrase, setPassphrase] = useState('')
   const [confirmPassphrase, setConfirmPassphrase] = useState('')
-  const [syncId, setSyncId] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [recovery, setRecovery] = useState<{ syncId: string } | null>(null)
+  const [recovery, setRecovery] = useState<{ username: string } | null>(null)
 
   async function submit() {
     setError(null)
+    if (!username.trim()) {
+      setError('Username is required.')
+      return
+    }
     if (passphrase.length < 12) {
       setError('Passphrase must be at least 12 characters.')
       return
@@ -136,21 +140,13 @@ function SetupForm({
       setError('Passphrases do not match.')
       return
     }
-    if (mode === 'join' && !syncId.trim()) {
-      setError('Sync ID is required.')
-      return
-    }
     setBusy(true)
     try {
-      const result = await setupSync({
-        serverUrl,
-        passphrase,
-        syncId: mode === 'join' ? syncId.trim() : undefined,
-      })
+      await setupSync({ serverUrl, username, passphrase })
       // Push the freshly backfilled rows and pull any history from peers.
       scheduleSync(0)
       if (mode === 'new') {
-        setRecovery({ syncId: result.syncId })
+        setRecovery({ username: username.trim().toLowerCase() })
       } else {
         onDone()
       }
@@ -165,17 +161,17 @@ function SetupForm({
     return (
       <div className="space-y-4">
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-          <p className="font-medium">Write this down.</p>
+          <p className="font-medium">Remember these two.</p>
           <p className="mt-1 text-xs">
-            To add another device or recover after a reinstall, you need both
-            your passphrase <em>and</em> this sync ID. The server cannot help —
-            it has no record of either.
+            To add another device or recover after a reinstall, enter the same
+            username <em>and</em> passphrase. The server can't help if either
+            is lost — it never sees them.
           </p>
         </div>
         <div>
-          <label className="block text-xs font-medium text-slate-500">Sync ID</label>
-          <div className="mt-1 break-all rounded-lg bg-slate-100 px-3 py-2 font-mono text-xs">
-            {recovery.syncId}
+          <label className="block text-xs font-medium text-slate-500">Username</label>
+          <div className="mt-1 rounded-lg bg-slate-100 px-3 py-2 font-mono text-xs">
+            {recovery.username}
           </div>
         </div>
         <button
@@ -191,9 +187,7 @@ function SetupForm({
   return (
     <div className="space-y-3">
       <Field label="Server URL" value={serverUrl} onChange={setServerUrl} />
-      {mode === 'join' && (
-        <Field label="Sync ID" value={syncId} onChange={setSyncId} mono />
-      )}
+      <Field label="Username" value={username} onChange={setUsername} />
       <Field
         label="Passphrase"
         value={passphrase}
@@ -237,7 +231,7 @@ function ConfiguredView({
   error,
   lastResult,
 }: {
-  meta: { syncId: string; deviceId: string; serverUrl: string; lastSyncedAt: number | null }
+  meta: { username: string; deviceId: string; serverUrl: string; lastSyncedAt: number | null }
   onSync: () => void
   onDisable: () => void
   busy: string | null
@@ -248,7 +242,7 @@ function ConfiguredView({
     <div className="space-y-4">
       <dl className="space-y-2 text-xs">
         <Row label="Server" value={meta.serverUrl} />
-        <Row label="Sync ID" value={meta.syncId} mono />
+        <Row label="Username" value={meta.username} mono />
         <Row label="Device" value={meta.deviceId} mono />
         <Row
           label="Last sync"

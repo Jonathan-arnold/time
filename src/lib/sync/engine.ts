@@ -26,9 +26,9 @@ import {
   b64ToBytes,
   bytesToB64,
   decryptJson,
-  deriveKeys,
+  deriveIdentity,
   encryptJson,
-  newSaltB64,
+  normalizeUsername,
   signRequest,
 } from './crypto'
 import type {
@@ -37,7 +37,6 @@ import type {
   PushRequest,
   PushRow,
   SealedChange,
-  SetupResponse,
 } from './protocol'
 
 const META_KEY = 'config' as const
@@ -48,43 +47,32 @@ export async function loadMeta(): Promise<SyncMeta | null> {
 }
 
 /**
- * Provision sync on this device. Talks to the server's /setup endpoint to
- * fetch or create the salt for this syncId, derives the two keys from the
- * passphrase, and writes everything to syncMeta. A freshly seeded device
- * also backfills the change log from existing local rows.
- *
- * @returns syncId — write it on the recovery sheet alongside the passphrase.
+ * Provision sync on this device. The (username, passphrase) pair
+ * deterministically derives the bucket id and the encryption keys — no
+ * server round-trip is needed for setup. A second device joins by entering
+ * the same pair and computing the same syncId locally; the first sync
+ * pulls the existing history. A freshly seeded device also backfills the
+ * change log from any pre-existing local rows.
  */
 export async function setupSync(opts: {
   serverUrl: string
+  username: string
   passphrase: string
-  /** Provide an existing syncId to join from a second device. */
-  syncId?: string
-}): Promise<{ syncId: string; existed: boolean }> {
+}): Promise<{ syncId: string }> {
   const serverUrl = opts.serverUrl.replace(/\/$/, '')
-  const syncId = opts.syncId ?? uuidv4()
+  const username = normalizeUsername(opts.username)
   const deviceId = uuidv4()
 
-  // Ask the server for the salt for this syncId. If the syncId is new it
-  // mints one; if it's known (second device joining) it returns the existing
-  // salt so derived keys match across devices.
-  const proposedSalt = await newSaltB64()
-  const setupBody = JSON.stringify({ proposedSaltB64: proposedSalt })
-  const setupRes = await fetch(`${serverUrl}/sync/${syncId}/setup`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: setupBody,
-  })
-  if (!setupRes.ok) throw new Error(`setup failed: ${setupRes.status}`)
-  const setup = (await setupRes.json()) as SetupResponse
-
-  const { kEnc, kAuth } = await deriveKeys(opts.passphrase, setup.saltB64)
+  const { kEnc, kAuth, syncId } = await deriveIdentity(
+    username,
+    opts.passphrase,
+  )
 
   const meta: SyncMeta = {
     id: META_KEY,
+    username,
     syncId,
     deviceId,
-    saltB64: setup.saltB64,
     kEncB64: await bytesToB64(kEnc),
     kAuthB64: await bytesToB64(kAuth),
     serverUrl,
@@ -125,7 +113,7 @@ export async function setupSync(opts: {
     refreshSeqState(deviceId, seq)
   })
 
-  return { syncId, existed: setup.existed }
+  return { syncId }
 }
 
 function makeBackfillRow(

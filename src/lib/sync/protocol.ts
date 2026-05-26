@@ -18,13 +18,6 @@ export interface PushRow {
 /** Returned by the server on GET /sync/{syncId}/pull. */
 export interface PullRow extends PushRow {}
 
-export interface SetupResponse {
-  /** Existing salt for this syncId, or a new one if first-time setup. */
-  saltB64: string
-  /** True if the syncId was already known (other device has set up). */
-  existed: boolean
-}
-
 export interface PushRequest {
   rows: PushRow[]
 }

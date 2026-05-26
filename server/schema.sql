@@ -1,8 +1,3 @@
-CREATE TABLE IF NOT EXISTS sync_salts (
-  sync_id TEXT PRIMARY KEY,
-  salt TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS sync_rows (
   sync_id TEXT NOT NULL,
   device_id TEXT NOT NULL,

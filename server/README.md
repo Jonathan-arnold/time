@@ -20,11 +20,12 @@ Defaults to `http://localhost:8787`. Storage is in-memory and resets every resta
 
 ## What the server sees
 
-Per-user: a random `syncId`, a per-device `deviceId`, monotonic `seq` numbers, ciphertext sizes, and push timestamps. **Never:** plaintext data, record types, or the passphrase.
+Per-user: an opaque `syncId` (the output of Argon2id over the client's passphrase + username), a per-device `deviceId`, monotonic `seq` numbers, ciphertext sizes, and push timestamps. **Never:** plaintext data, record types, usernames, or the passphrase.
 
 ## What it doesn't do (intentionally)
 
-- **Passphrase rotation.** Re-encrypting the whole log is left to a future migration.
-- **Account recovery.** Lose the passphrase + sync ID → data is unrecoverable. This is the deal.
-- **HMAC verification.** v1 accepts any well-formed signed request for a known `syncId`. Hardening (challenge-response or MAC pinning at setup time) is a follow-up; the bucket id is opaque enough that this is acceptable for a personal-scale deployment.
+- **No setup endpoint.** Clients derive `syncId` and keys deterministically from `(username, passphrase)`, so a second device joins by typing the same pair — no server round-trip to fetch a salt.
+- **Passphrase rotation.** Changes the syncId and keys; you'd have to migrate the log. Out of scope for v1.
+- **Account recovery.** Lose the username or passphrase → data is unrecoverable. The server has nothing to help with.
+- **Real signature verification.** v1 only checks that the `x-sync-sig` header is present. The brute-force barrier is Argon2id on the client; an attacker still has to guess both username and passphrase to derive any valid `syncId`. Ed25519-pinning on first push is the documented hardening path.
 - **Log compaction.** Years of personal time data fits in a few MB; revisit if it ever matters.

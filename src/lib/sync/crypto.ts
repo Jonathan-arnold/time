@@ -18,40 +18,65 @@ export function readyCrypto(): Promise<void> {
   return sodium.ready
 }
 
-export interface DerivedKeys {
+export interface DerivedIdentity {
+  /** Symmetric key for sealing record payloads. */
   kEnc: Uint8Array
+  /** HMAC key for signing requests. */
   kAuth: Uint8Array
+  /**
+   * Opaque server bucket id, derived deterministically from the same
+   * passphrase + username so a second device computes the same value.
+   * Base64-url-safe so it's safe in URL paths.
+   */
+  syncId: string
+}
+
+/** Whitespace-trim and lowercase + NFKC-normalize a username for derivation. */
+export function normalizeUsername(raw: string): string {
+  return raw.trim().toLowerCase().normalize('NFKC')
 }
 
 /**
- * Argon2id passphrase → (kEnc, kAuth). The 64-byte output is split in half
- * so the encryption key and the request-signing key are independent.
- * `INTERACTIVE` ops/memory are right for a personal app — strong enough that
- * a stolen blob isn't trivially brute-forced, fast enough that setup on a
- * phone doesn't feel broken.
+ * Deterministic identity derivation from (username, passphrase) — no
+ * server round-trip is needed because both devices compute the same
+ * (kEnc, kAuth, syncId) from the same inputs.
+ *
+ * - Argon2id makes guessing infeasible at passphrase strength.
+ * - The salt is `blake2b(username)` so two users with different
+ *   usernames never share precomputable Argon2 outputs.
+ * - 96 bytes of output split into kEnc (32) || kAuth (32) || syncIdBytes (32).
+ *
+ * `INTERACTIVE` ops/memory: strong enough that a stolen blob isn't trivially
+ * brute-forced, fast enough that setup on a phone doesn't feel broken.
  */
-export async function deriveKeys(
+export async function deriveIdentity(
+  username: string,
   passphrase: string,
-  saltB64: string,
-): Promise<DerivedKeys> {
+): Promise<DerivedIdentity> {
   await sodium.ready
-  const salt = sodium.from_base64(saltB64, sodium.base64_variants.ORIGINAL)
-  const out = sodium.crypto_pwhash(
-    64,
+  const normUser = normalizeUsername(username)
+  const saltSeed = sodium.from_string('time-sync-v1:' + normUser)
+  const salt = sodium.crypto_generichash(
+    sodium.crypto_pwhash_SALTBYTES,
+    saltSeed,
+    null,
+  ) as Uint8Array
+  const out: Uint8Array = sodium.crypto_pwhash(
+    96,
     passphrase,
     salt,
     sodium.crypto_pwhash_OPSLIMIT_INTERACTIVE,
     sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE,
     sodium.crypto_pwhash_ALG_ARGON2ID13,
   )
-  return { kEnc: out.subarray(0, 32), kAuth: out.subarray(32, 64) }
-}
-
-/** Generate a 16-byte salt, base64 (libsodium ORIGINAL variant). */
-export async function newSaltB64(): Promise<string> {
-  await sodium.ready
-  const salt = sodium.randombytes_buf(sodium.crypto_pwhash_SALTBYTES)
-  return sodium.to_base64(salt, sodium.base64_variants.ORIGINAL)
+  return {
+    kEnc: out.subarray(0, 32),
+    kAuth: out.subarray(32, 64),
+    syncId: sodium.to_base64(
+      out.subarray(64, 96),
+      sodium.base64_variants.URLSAFE_NO_PADDING,
+    ),
+  }
 }
 
 /**

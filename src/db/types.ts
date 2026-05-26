@@ -119,12 +119,19 @@ export interface Change {
  */
 export interface SyncMeta {
   id: 'config'
-  /** Opaque per-user bucket id; recovery sheet shows this + the passphrase. */
+  /**
+   * The user-chosen identity name. Combined with the passphrase, it
+   * deterministically derives `syncId` and the keys — so the recovery
+   * sheet is "remember these two strings," nothing UUID-shaped.
+   */
+  username: string
+  /**
+   * Opaque per-user bucket id, derived from (username, passphrase).
+   * The server treats this as the only routing key it understands.
+   */
   syncId: string
   /** Random per-device id, included on every change row. */
   deviceId: string
-  /** Base64 Argon2 salt — shared across devices for this syncId. */
-  saltB64: string
   /** Base64 32-byte XChaCha20-Poly1305 key derived from passphrase. */
   kEncB64: string
   /** Base64 32-byte HMAC key derived from passphrase. */
