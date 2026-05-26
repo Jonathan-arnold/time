@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { addMonths, addWeeks, format } from 'date-fns'
+import { addDays, addMonths, addWeeks, format } from 'date-fns'
 import { db } from '../db'
 import type { Block, Budget, Category } from '../db'
 import { budgetPeriod, periodCoveredDays } from '../lib/budget'
@@ -29,9 +29,19 @@ export default function BudgetProgress({
   categories,
   blocks,
 }: BudgetProgressProps) {
-  // How many periods to step away from the one containing today. One-off
-  // budgets have a single fixed period, so navigation is disabled for them.
+  // How many periods (or days, in day scale) to step away from the one
+  // containing today. One-off budgets have a single fixed period, so
+  // navigation is disabled for them.
   const [offset, setOffset] = useState(0)
+  // Whether to view the whole period at once, or zoom in to a single day.
+  const [scale, setScale] = useState<'period' | 'day'>('period')
+
+  // Switching scale would otherwise leave the offset meaning a different
+  // span of time — reset so the toggle always lands on "current".
+  const setScaleReset = (s: 'period' | 'day') => {
+    setScale(s)
+    setOffset(0)
+  }
 
   const allocations = useLiveQuery(
     () => db.budgetAllocations.where('budgetId').equals(budget.id).toArray(),
@@ -42,13 +52,14 @@ export default function BudgetProgress({
   // offset (a week or a month at a time, matching the budget's recurrence).
   const refIso = useMemo(() => {
     const today = parseIsoDate(isoDate(new Date()))
+    if (scale === 'day') return isoDate(addDays(today, offset))
     if (budget.type === 'oneoff') return isoDate(today)
     const shifted =
       budget.recurrence === 'monthly'
         ? addMonths(today, offset)
         : addWeeks(today, offset)
     return isoDate(shifted)
-  }, [budget.type, budget.recurrence, offset])
+  }, [budget.type, budget.recurrence, offset, scale])
 
   const { startIso, endIso } = useMemo(
     () => budgetPeriod(budget, refIso),
@@ -62,27 +73,46 @@ export default function BudgetProgress({
     [budgets, budget, refIso],
   )
 
-  // Minutes allocated directly to each category.
+  // Whether the focused day in day-scale mode is actually one this budget
+  // governs. Period scale always counts as "covered".
+  const dayCovered = scale !== 'day' || coveredDays.has(refIso)
+
+  // Minutes allocated directly to each category. In day scale the period
+  // total is split evenly across the period's covered days so each row
+  // shows that day's share of the allocation.
   const allocDirect = useMemo(() => {
     const map = new Map<string, number>()
-    for (const a of allocations ?? []) map.set(a.categoryId, a.minutes)
+    const divisor =
+      scale === 'day' && coveredDays.size > 0 ? coveredDays.size : 1
+    for (const a of allocations ?? []) {
+      if (scale === 'day' && !dayCovered) {
+        map.set(a.categoryId, 0)
+      } else {
+        map.set(a.categoryId, Math.round(a.minutes / divisor))
+      }
+    }
     return map
-  }, [allocations])
+  }, [allocations, scale, coveredDays, dayCovered])
 
-  // Minutes categorized directly to each category within this period —
-  // counting only blocks on covered days and inside the coverage window.
+  // Minutes categorized directly to each category within the viewed range —
+  // counting only blocks on covered days (or the single day, in day scale)
+  // and inside the coverage window.
   const assignedDirect = useMemo(() => {
     const map = new Map<string, number>()
     for (const b of blocks) {
       const d = new Date(b.start)
-      if (!coveredDays.has(isoDate(d))) continue
+      const dayIso = isoDate(d)
+      if (scale === 'day') {
+        if (dayIso !== refIso) continue
+        if (!dayCovered) continue
+      } else if (!coveredDays.has(dayIso)) continue
       const minuteOfDay = d.getHours() * 60 + d.getMinutes()
       if (minuteOfDay < budget.coverStart || minuteOfDay >= budget.coverEnd)
         continue
       map.set(b.categoryId, (map.get(b.categoryId) ?? 0) + BLOCK_MINUTES)
     }
     return map
-  }, [blocks, coveredDays, budget.coverStart, budget.coverEnd])
+  }, [blocks, coveredDays, budget.coverStart, budget.coverEnd, scale, refIso, dayCovered])
 
   // Direct children of each category, keyed by parent id ('' = top level).
   const childIds = useMemo(() => {
@@ -119,11 +149,21 @@ export default function BudgetProgress({
   // ratio outruns this.
   const elapsedFraction = useMemo(() => {
     const windowLen = budget.coverEnd - budget.coverStart
-    const total = coveredDays.size * windowLen
-    if (total === 0) return 1
+    if (windowLen === 0) return 1
     const now = new Date()
     const todayIso = isoDate(now)
     const nowMinute = now.getHours() * 60 + now.getMinutes()
+    if (scale === 'day') {
+      if (!dayCovered) return 0
+      if (refIso < todayIso) return 1
+      if (refIso > todayIso) return 0
+      return Math.min(
+        1,
+        Math.max(0, nowMinute - budget.coverStart) / windowLen,
+      )
+    }
+    const total = coveredDays.size * windowLen
+    if (total === 0) return 1
     let elapsed = 0
     for (const dayIso of coveredDays) {
       if (dayIso < todayIso) elapsed += windowLen
@@ -131,7 +171,7 @@ export default function BudgetProgress({
         elapsed += Math.min(windowLen, Math.max(0, nowMinute - budget.coverStart))
     }
     return Math.min(1, elapsed / total)
-  }, [coveredDays, budget.coverStart, budget.coverEnd])
+  }, [coveredDays, budget.coverStart, budget.coverEnd, scale, refIso, dayCovered])
 
   const allocTotal = useMemo(() => rollUp(allocDirect), [rollUp, allocDirect])
   const assignedTotal = useMemo(
@@ -174,12 +214,16 @@ export default function BudgetProgress({
 
   if (!allocations) return <div className="text-slate-400">Loading…</div>
 
-  const periodLabel = `${format(parseIsoDate(startIso), 'MMM d')} – ${format(
-    parseIsoDate(endIso),
-    'MMM d',
-  )}`
-  const canNavigate = budget.type !== 'oneoff'
+  const periodLabel =
+    scale === 'day'
+      ? format(parseIsoDate(refIso), 'EEE, MMM d')
+      : `${format(parseIsoDate(startIso), 'MMM d')} – ${format(
+          parseIsoDate(endIso),
+          'MMM d',
+        )}`
+  const canNavigate = budget.type !== 'oneoff' || scale === 'day'
   const isCurrent = offset === 0
+  const currentLabel = scale === 'day' ? 'today' : 'current'
 
   return (
     <div>
@@ -191,26 +235,46 @@ export default function BudgetProgress({
           </h2>
           <p className="text-sm text-slate-500">
             {periodLabel}
-            {isCurrent && canNavigate && ' · current'}
+            {isCurrent && canNavigate && ` · ${currentLabel}`}
             {' · '}
             {formatDuration(summary.assigned)} of{' '}
             {formatDuration(summary.allocated)} assigned
           </p>
         </div>
-        {canNavigate && (
-          <div className="flex items-center gap-1">
-            <NavButton label="◀" onClick={() => setOffset((o) => o - 1)} />
-            <button
-              type="button"
-              onClick={() => setOffset(0)}
-              disabled={isCurrent}
-              className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 disabled:text-slate-300"
-            >
-              Today
-            </button>
-            <NavButton label="▶" onClick={() => setOffset((o) => o + 1)} />
+        <div className="flex items-center gap-3">
+          {/* Scale toggle: whole-period totals vs. just the focused day. */}
+          <div className="flex shrink-0 gap-0.5 rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+            {(['day', 'period'] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setScaleReset(s)}
+                className={
+                  'rounded-md px-3 py-1 text-xs font-medium transition-colors ' +
+                  (scale === s
+                    ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200'
+                    : 'text-slate-500 hover:text-slate-900')
+                }
+              >
+                {s === 'day' ? 'Day' : 'Period'}
+              </button>
+            ))}
           </div>
-        )}
+          {canNavigate && (
+            <div className="flex items-center gap-1">
+              <NavButton label="◀" onClick={() => setOffset((o) => o - 1)} />
+              <button
+                type="button"
+                onClick={() => setOffset(0)}
+                disabled={isCurrent}
+                className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900 disabled:text-slate-300"
+              >
+                Today
+              </button>
+              <NavButton label="▶" onClick={() => setOffset((o) => o + 1)} />
+            </div>
+          )}
+        </div>
       </div>
 
       {rows.length === 0 ? (
