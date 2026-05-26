@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import BudgetAssignment from '../components/BudgetAssignment'
 import BudgetSchedule from '../components/BudgetSchedule'
@@ -537,6 +537,7 @@ function NewCategoryForm({
   const [name, setName] = useState('')
   const [parentId, setParentId] = useState(fixedParentId ?? '')
   const [color, setColor] = useState(PALETTE[0])
+  const inputRef = useRef<HTMLInputElement>(null)
   const parentOptions = useMemo(
     () => indentCategories(categories),
     [categories],
@@ -555,12 +556,15 @@ function NewCategoryForm({
       color,
       order,
     })
-    onDone()
+    setName('')
+    setColor(PALETTE[0])
+    inputRef.current?.focus()
   }
 
   return (
     <div className="max-w-sm space-y-3 rounded-xl border border-slate-300 bg-white p-3">
       <input
+        ref={inputRef}
         autoFocus
         value={name}
         onChange={(e) => setName(e.target.value)}
