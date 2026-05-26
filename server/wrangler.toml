@@ -1,0 +1,13 @@
+name = "time-sync"
+main = "worker.ts"
+compatibility_date = "2024-11-01"
+
+# Uncomment after creating a D1 database with:
+#   wrangler d1 create time-sync
+# and applying schema.sql below. Without the binding, the worker falls back
+# to an in-memory store — fine for `wrangler dev`, lost on every restart.
+#
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "time-sync"
+# database_id = "REPLACE_ME"

@@ -82,3 +82,62 @@ export interface BudgetAllocation {
   categoryId: string
   minutes: number
 }
+
+export type SyncRecordType = 'block' | 'category' | 'budget' | 'allocation'
+export type SyncOp = 'put' | 'del'
+
+/**
+ * One row of the per-device append-only change log. Local writes append
+ * rows here via Dexie hooks; the sync engine encrypts and ships them to
+ * peers. Tombstones (op:'del') are kept forever so devices that come
+ * online after a delete still see the deletion.
+ */
+export interface Change {
+  /** Auto-incremented local rowid. */
+  id?: number
+  deviceId: string
+  /** Monotonic per-device sequence number. */
+  seq: number
+  recordType: SyncRecordType
+  recordId: string
+  op: SyncOp
+  /** Epoch ms — the LWW tiebreaker when merging concurrent edits. */
+  updatedAt: number
+  /** Full record snapshot for 'put'; null for 'del'. */
+  payload: unknown
+  /** 'local' = produced here; 'remote' = pulled from a peer. */
+  source: 'local' | 'remote'
+  /** True once this local row has been pushed to the server. */
+  pushed: 0 | 1
+}
+
+/**
+ * Singleton row holding sync configuration and cursors. Key is always 'config'.
+ *
+ * Keys live in IndexedDB alongside the plaintext data, so encryption here
+ * is about what the *server* sees, not about local-device attackers.
+ */
+export interface SyncMeta {
+  id: 'config'
+  /** Opaque per-user bucket id; recovery sheet shows this + the passphrase. */
+  syncId: string
+  /** Random per-device id, included on every change row. */
+  deviceId: string
+  /** Base64 Argon2 salt — shared across devices for this syncId. */
+  saltB64: string
+  /** Base64 32-byte XChaCha20-Poly1305 key derived from passphrase. */
+  kEncB64: string
+  /** Base64 32-byte HMAC key derived from passphrase. */
+  kAuthB64: string
+  /** Server base URL, no trailing slash. */
+  serverUrl: string
+  /** Next local seq to assign. */
+  localSeq: number
+  /**
+   * Highest seq we've successfully applied per peer device (includes our own,
+   * so a clean reinstall can fast-forward from the server).
+   */
+  cursors: Record<string, number>
+  /** Epoch ms of the last successful sync round-trip. */
+  lastSyncedAt: number | null
+}

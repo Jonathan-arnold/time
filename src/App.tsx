@@ -3,6 +3,8 @@ import { ensureSeeded } from './db'
 import TransactionsTab from './tabs/TransactionsTab'
 import BudgetsTab from './tabs/BudgetsTab'
 import MetricsTab from './tabs/MetricsTab'
+import SyncSettings from './components/SyncSettings'
+import { installAutoSync } from './lib/sync'
 
 const TABS = [
   { id: 'transactions', label: 'Past', sub: 'Categorize', Component: TransactionsTab },
@@ -14,6 +16,7 @@ type TabId = (typeof TABS)[number]['id']
 
 export default function App() {
   const [active, setActive] = useState<TabId>('transactions')
+  const [syncOpen, setSyncOpen] = useState(false)
   const ActiveComponent = TABS.find((t) => t.id === active)!.Component
 
   // A brief calibration flourish on first load.
@@ -26,6 +29,12 @@ export default function App() {
   // Populate default categories on first run.
   useEffect(() => {
     void ensureSeeded()
+  }, [])
+
+  // Auto-sync: debounced push on every local change, plus pull on focus/timer.
+  // No-op until the user configures sync via the gear modal.
+  useEffect(() => {
+    installAutoSync()
   }, [])
 
   return (
@@ -53,6 +62,7 @@ export default function App() {
             </h1>
           </div>
 
+          <div className="flex items-center gap-2">
           <nav className="flex gap-0.5 rounded-xl border border-slate-200 bg-slate-50 p-1">
             {TABS.map((tab) => (
               <button
@@ -72,8 +82,31 @@ export default function App() {
               </button>
             ))}
           </nav>
+            <button
+              onClick={() => setSyncOpen(true)}
+              className="rounded-lg border border-slate-200 bg-white p-2 text-slate-500 transition-colors hover:text-slate-900"
+              aria-label="Sync settings"
+              title="Sync"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-4 w-4"
+              >
+                <path d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-7.4-3.9" />
+                <path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 7.4 3.9" />
+                <path d="M21 3v6h-6" />
+                <path d="M3 21v-6h6" />
+              </svg>
+            </button>
+          </div>
         </div>
       </header>
+      {syncOpen && <SyncSettings onClose={() => setSyncOpen(false)} />}
 
       <main className="mx-auto max-w-5xl px-6 py-8">
         <ActiveComponent />

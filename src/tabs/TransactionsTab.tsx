@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import DaySelector from '../components/DaySelector'
-import { db } from '../db'
+import { db, mutate } from '../db'
 import type { Block, BudgetAllocation, Category } from '../db'
 import { categoryMap } from '../lib/categories'
 import { budgetPeriod, periodCoveredDays, resolveBudget } from '../lib/budget'
@@ -219,24 +219,28 @@ export default function TransactionsTab() {
   async function applyCategory(categoryId: string) {
     const targets = [...selected].filter((s) => isBlockPast(s, now))
     if (targets.length === 0) return
-    if (categoryId === '__clear__') {
-      await db.blocks.bulkDelete(targets)
-    } else {
-      await db.blocks.bulkPut(
-        targets.map((start) => ({ start, categoryId })),
-      )
-    }
+    await mutate(async () => {
+      if (categoryId === '__clear__') {
+        await db.blocks.bulkDelete(targets)
+      } else {
+        await db.blocks.bulkPut(
+          targets.map((start) => ({ start, categoryId })),
+        )
+      }
+    })
     setSelected(new Set())
     setAnchor(null)
   }
 
   // Categorize a single block directly from its picker popover.
   async function categorizeBlock(start: number, categoryId: string) {
-    if (categoryId === '__clear__') {
-      await db.blocks.delete(start)
-    } else {
-      await db.blocks.put({ start, categoryId })
-    }
+    await mutate(async () => {
+      if (categoryId === '__clear__') {
+        await db.blocks.delete(start)
+      } else {
+        await db.blocks.put({ start, categoryId })
+      }
+    })
     setPickerFor(null)
   }
 

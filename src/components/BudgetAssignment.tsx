@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db } from '../db'
+import { db, mutate } from '../db'
 import type { Budget, Category } from '../db'
 import { categoryMap, indentCategories } from '../lib/categories'
 import { formatDuration, formatTimeOfDay } from '../lib/time'
@@ -120,22 +120,26 @@ export default function BudgetAssignment({ budget }: BudgetAssignmentProps) {
     const existing = await db.budgetAllocations
       .where({ budgetId: budget.id, categoryId })
       .first()
+    await mutate(async () => {
+      if (minutes <= 0) {
+        if (existing) await db.budgetAllocations.delete(existing.id)
+      } else if (existing) {
+        await db.budgetAllocations.update(existing.id, { minutes })
+      } else {
+        await db.budgetAllocations.add({
+          id: crypto.randomUUID(),
+          budgetId: budget.id,
+          categoryId,
+          minutes,
+        })
+      }
+    })
     if (minutes <= 0) {
-      if (existing) await db.budgetAllocations.delete(existing.id)
       setPending((prev) => {
         if (!prev.has(categoryId)) return prev
         const next = new Set(prev)
         next.delete(categoryId)
         return next
-      })
-    } else if (existing) {
-      await db.budgetAllocations.update(existing.id, { minutes })
-    } else {
-      await db.budgetAllocations.add({
-        id: crypto.randomUUID(),
-        budgetId: budget.id,
-        categoryId,
-        minutes,
       })
     }
     setEditingId(null)
@@ -164,7 +168,11 @@ export default function BudgetAssignment({ budget }: BudgetAssignmentProps) {
           {(['daily', 'period'] as const).map((m) => (
             <button
               key={m}
-              onClick={() => void db.budgets.update(budget.id, { allocationMode: m })}
+              onClick={() =>
+                void mutate(() =>
+                  db.budgets.update(budget.id, { allocationMode: m }),
+                )
+              }
               className={
                 'rounded-md px-3 py-1 text-xs font-medium transition-colors ' +
                 (mode === m
