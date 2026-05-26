@@ -595,7 +595,8 @@ function BudgetFilterPicker({
   useEffect(() => {
     if (!open) return
     function onDown(e: MouseEvent) {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
+      if (!rootRef.current?.contains(e.target as globalThis.Node))
+        setOpen(false)
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') setOpen(false)
