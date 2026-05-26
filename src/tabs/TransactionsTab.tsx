@@ -3,11 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import DaySelector from '../components/DaySelector'
 import { db } from '../db'
 import type { Block, BudgetAllocation, Category } from '../db'
-import {
-  categoryMap,
-  indentCategories,
-  type IndentedCategory,
-} from '../lib/categories'
+import { categoryMap } from '../lib/categories'
 import { budgetPeriod, periodCoveredDays, resolveBudget } from '../lib/budget'
 import {
   BLOCK_MS,
@@ -118,10 +114,6 @@ export default function TransactionsTab() {
     return db.blocks.where('start').between(lo, hi, true, false).toArray()
   }, [periodRange?.startIso, periodRange?.endIso])
 
-  const catList = useMemo(
-    () => (categories ? indentCategories(categories) : []),
-    [categories],
-  )
   const catById = useMemo(
     () => categoryMap(categories ?? []),
     [categories],
@@ -317,7 +309,7 @@ export default function TransactionsTab() {
 
         {isPicking && pickerFor && (
           <CategoryPicker
-            catList={catList}
+            categories={categories ?? []}
             remainingByCategory={remainingByCategory}
             showClear={catId !== undefined}
             onPick={(id) => categorizeBlock(start, id)}
@@ -514,7 +506,7 @@ export default function TransactionsTab() {
             </button>
             {bulkPicker && (
               <CategoryPicker
-                catList={catList}
+                categories={categories ?? []}
                 remainingByCategory={remainingByCategory}
                 showClear
                 onPick={(id) => {
@@ -543,19 +535,21 @@ export default function TransactionsTab() {
 }
 
 /**
- * The shared category-picker panel: every category in a single list, with a
- * remaining-time figure on any that the active budget allocates. Used both
- * for single-block clicks and the multi-select bar.
+ * The shared category-picker panel: a drill-down chooser that starts at the
+ * top-level categories. Clicking a category with children descends into them;
+ * the parent is offered at the top of its own sublevel so it can be picked
+ * directly. Leaf categories pick immediately. Each row shows the remaining
+ * minutes the active budget allocates to that category, when relevant.
  */
 function CategoryPicker({
-  catList,
+  categories,
   remainingByCategory,
   showClear,
   onPick,
   fixedAnchor,
   panelClassName,
 }: {
-  catList: IndentedCategory[]
+  categories: Category[]
   remainingByCategory: Map<string, number>
   showClear: boolean
   onPick: (categoryId: string) => void
@@ -567,9 +561,29 @@ function CategoryPicker({
   const panelRef = useRef<HTMLDivElement>(null)
   // Measured position; hidden on first paint until we know the panel's size.
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
+  // Ids from root to the currently-viewed category ([] = top level).
+  const [path, setPath] = useState<string[]>([])
 
-  // After mount, place the panel so it never spills past a viewport edge:
-  // prefer dropping below the anchor, flip above when there isn't room.
+  const byId = useMemo(() => categoryMap(categories), [categories])
+  const childrenOf = useMemo(() => {
+    const map = new Map<string, Category[]>()
+    for (const c of categories) {
+      const key = c.parentId ?? ''
+      const arr = map.get(key) ?? []
+      arr.push(c)
+      map.set(key, arr)
+    }
+    for (const arr of map.values()) arr.sort((a, b) => a.order - b.order)
+    return map
+  }, [categories])
+
+  const currentId = path[path.length - 1] ?? ''
+  const currentCat = currentId ? byId.get(currentId) : null
+  const children = childrenOf.get(currentId) ?? []
+
+  // After mount (and whenever the panel's size may change), place it so it
+  // never spills past a viewport edge: prefer dropping below the anchor, flip
+  // above when there isn't room.
   useLayoutEffect(() => {
     const el = panelRef.current
     if (!el) return
@@ -582,42 +596,64 @@ function CategoryPicker({
     const spaceBelow = window.innerHeight - anchorBottom
     let top: number
     if (height + MARGIN <= spaceBelow || spaceBelow >= anchorTop) {
-      // Fits below, or below still has more room than above.
       top = Math.min(anchorBottom + 4, window.innerHeight - height - MARGIN)
     } else {
       top = Math.max(MARGIN, anchorTop - 4 - height)
     }
     setPos({ left, top })
-  }, [fixedAnchor])
+  }, [fixedAnchor, path])
 
-  // One category row in the picker list.
-  const catButton = (category: Category, depth: number) => {
-    const rem = remainingByCategory.get(category.id)
+  // One selectable row — renders the remaining-minutes pill when the active
+  // budget allocates to this category.
+  const remPill = (id: string) => {
+    const rem = remainingByCategory.get(id)
+    if (rem === undefined) return null
+    return (
+      <span
+        className={
+          'ml-auto shrink-0 pl-2 text-xs tabular-nums ' +
+          (rem < 0 ? 'text-rose-500' : 'text-slate-400')
+        }
+      >
+        {rem < 0
+          ? `${formatDuration(-rem)} over`
+          : `${formatDuration(rem)} left`}
+      </span>
+    )
+  }
+
+  const row = (c: Category) => {
+    const kids = childrenOf.get(c.id) ?? []
+    if (kids.length > 0) {
+      return (
+        <button
+          key={c.id}
+          type="button"
+          onClick={() => setPath((p) => [...p, c.id])}
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100"
+        >
+          <span
+            className="h-2.5 w-2.5 shrink-0 rounded-full"
+            style={{ backgroundColor: c.color }}
+          />
+          <span className="truncate font-medium text-slate-800">{c.name}</span>
+          <span className="ml-auto shrink-0 pl-2 text-slate-300">›</span>
+        </button>
+      )
+    }
     return (
       <button
-        key={category.id}
+        key={c.id}
         type="button"
-        onClick={() => onPick(category.id)}
+        onClick={() => onPick(c.id)}
         className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100"
-        style={{ paddingLeft: `${12 + depth * 14}px` }}
       >
         <span
           className="h-2.5 w-2.5 shrink-0 rounded-full"
-          style={{ backgroundColor: category.color }}
+          style={{ backgroundColor: c.color }}
         />
-        <span className="truncate">{category.name}</span>
-        {rem !== undefined && (
-          <span
-            className={
-              'ml-auto shrink-0 pl-2 text-xs tabular-nums ' +
-              (rem < 0 ? 'text-rose-500' : 'text-slate-400')
-            }
-          >
-            {rem < 0
-              ? `${formatDuration(-rem)} over`
-              : `${formatDuration(rem)} left`}
-          </span>
-        )}
+        <span className="truncate">{c.name}</span>
+        {remPill(c.id)}
       </button>
     )
   }
@@ -634,11 +670,48 @@ function CategoryPicker({
       }}
       className={panelClassName}
     >
+      {currentCat && (
+        <>
+          <button
+            type="button"
+            onClick={() => setPath((p) => p.slice(0, -1))}
+            className="flex w-full items-center gap-1 px-3 py-1.5 text-left text-xs font-medium text-slate-400 transition-colors hover:text-slate-700"
+          >
+            ‹ Back
+          </button>
+          <button
+            type="button"
+            onClick={() => onPick(currentCat.id)}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-slate-700 hover:bg-slate-100"
+          >
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-full"
+              style={{ backgroundColor: currentCat.color }}
+            />
+            <span className="truncate font-medium text-slate-800">
+              {currentCat.name}
+            </span>
+            {remPill(currentCat.id) ?? (
+              <span className="ml-auto shrink-0 pl-2 text-xs text-slate-400">
+                Pick
+              </span>
+            )}
+          </button>
+          <div className="my-1 h-px bg-slate-100" />
+        </>
+      )}
+
       <div className="max-h-72 overflow-y-auto">
-        {catList.map(({ category, depth }) => catButton(category, depth))}
+        {children.length === 0 ? (
+          <div className="px-3 py-2 text-sm text-slate-400">
+            No subcategories.
+          </div>
+        ) : (
+          children.map(row)
+        )}
       </div>
 
-      {showClear && (
+      {showClear && !currentCat && (
         <button
           type="button"
           onClick={() => onPick('__clear__')}
