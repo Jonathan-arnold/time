@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import BudgetAssignment from '../components/BudgetAssignment'
 import BudgetSchedule from '../components/BudgetSchedule'
 import { db, mutate } from '../db'
-import type { Budget, BudgetType, Category } from '../db'
+import type { Budget, BudgetType, Category, Era } from '../db'
 import {
   indentCategories,
   moveCategory,
@@ -55,7 +55,7 @@ function isScheduleValid(budget: Budget): boolean {
   return false
 }
 
-export default function BudgetsTab() {
+export default function BudgetsTab({ era }: { era: Era }) {
   const [selectedId, setSelectedId] = useState<string | null>(
     CATEGORY_LIBRARY,
   )
@@ -63,7 +63,10 @@ export default function BudgetsTab() {
   const [editingSchedule, setEditingSchedule] = useState(false)
   const [kind, setKind] = useState<BudgetType>('recurring')
 
-  const budgets = useLiveQuery(() => db.budgets.toArray(), [])
+  const budgets = useLiveQuery(
+    () => db.budgets.where('eraId').equals(era.id).toArray(),
+    [era.id],
+  )
   const recurring = useMemo(
     () =>
       (budgets ?? [])
@@ -244,6 +247,7 @@ export default function BudgetsTab() {
         {creating ? (
           <NewBudgetForm
             type={kind}
+            eraId={era.id}
             onCancel={() => setCreating(false)}
             onCreate={(id, type) => {
               setCreating(false)
@@ -264,7 +268,7 @@ export default function BudgetsTab() {
 
       <section>
         {isLibrary ? (
-          <CategoryLibrary />
+          <CategoryLibrary era={era} />
         ) : selected ? (
           <div className="rounded-xl border border-slate-200 bg-white p-6">
             {editingSchedule ? (
@@ -324,16 +328,19 @@ export default function BudgetsTab() {
 }
 
 /**
- * The shared category library — categories defined here are inherited by
- * every budget. It cannot be scheduled or allocated.
+ * The era's category library — categories defined here are shared by every
+ * budget in the era. It cannot be scheduled or allocated.
  */
-function CategoryLibrary() {
+function CategoryLibrary({ era }: { era: Era }) {
   const [creating, setCreating] = useState(false)
   const [dragId, setDragId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<
     { id: string; intent: DropIntent } | null
   >(null)
-  const categories = useLiveQuery(() => db.categories.toArray(), [])
+  const categories = useLiveQuery(
+    () => db.categories.where('eraId').equals(era.id).toArray(),
+    [era.id],
+  )
   const list = useMemo(
     () => indentCategories(categories ?? []),
     [categories],
@@ -370,7 +377,8 @@ function CategoryLibrary() {
     <div className="rounded-xl border border-slate-200 bg-white p-6">
       <h2 className="text-lg font-semibold text-slate-900">Categories</h2>
       <p className="mt-1 text-sm text-slate-400">
-        Shared across every budget. Define your categories once here.
+        Shared across every budget in this era. Define your categories once
+        here.
       </p>
 
       <ul className="mt-6 divide-y divide-slate-100 border-y border-slate-100">
@@ -389,6 +397,7 @@ function CategoryLibrary() {
         {creating ? (
           <NewCategoryForm
             categories={categories ?? []}
+            eraId={era.id}
             onDone={() => setCreating(false)}
           />
         ) : (
@@ -614,6 +623,7 @@ function CategoryRow({ category, depth, categories, dnd }: CategoryRowProps) {
       <li className="py-2" style={{ paddingLeft: (depth + 1) * 20 }}>
         <NewCategoryForm
           categories={categories}
+          eraId={category.eraId}
           fixedParentId={category.id}
           onDone={() => setAddingSub(false)}
         />
@@ -625,6 +635,8 @@ function CategoryRow({ category, depth, categories, dnd }: CategoryRowProps) {
 
 interface NewCategoryFormProps {
   categories: Category[]
+  /** The era the new category belongs to. */
+  eraId: string
   onDone: () => void
   /** When set, the new category is fixed under this parent (no parent picker). */
   fixedParentId?: string
@@ -633,6 +645,7 @@ interface NewCategoryFormProps {
 /** Inline form for creating a category: name, optional parent, and color. */
 function NewCategoryForm({
   categories,
+  eraId,
   onDone,
   fixedParentId,
 }: NewCategoryFormProps) {
@@ -658,6 +671,7 @@ function NewCategoryForm({
         parentId: parent,
         color,
         order,
+        eraId,
       }),
     )
     setName('')
@@ -728,12 +742,14 @@ function NewCategoryForm({
 
 interface NewBudgetFormProps {
   type: BudgetType
+  /** The era the new budget belongs to. */
+  eraId: string
   onCreate: (id: string, type: BudgetType) => void
   onCancel: () => void
 }
 
 /** Inline form for creating a budget — name only; type is set by the active tab. */
-function NewBudgetForm({ type, onCreate, onCancel }: NewBudgetFormProps) {
+function NewBudgetForm({ type, eraId, onCreate, onCancel }: NewBudgetFormProps) {
   const [name, setName] = useState('')
 
   async function submit() {
@@ -756,6 +772,7 @@ function NewBudgetForm({ type, onCreate, onCancel }: NewBudgetFormProps) {
         endDate: null,
         priority: 0,
         favorite: false,
+        eraId,
         createdAt: Date.now(),
       }),
     )

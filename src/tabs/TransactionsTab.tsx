@@ -5,6 +5,7 @@ import { db, mutate } from '../db'
 import type { Block, BudgetAllocation, Category } from '../db'
 import { categoryMap } from '../lib/categories'
 import { budgetPeriod, periodCoveredDays, resolveBudget } from '../lib/budget'
+import { eraForDate } from '../lib/eras'
 import {
   BLOCK_MS,
   dayBlockStarts,
@@ -74,7 +75,17 @@ export default function TransactionsTab() {
 
   const starts = useMemo(() => dayBlockStarts(iso), [iso])
 
+  // The era containing the viewed day. Its categories feed the pickers; its
+  // budgets drive "time left to assign". Block display still looks across
+  // every era so history categorized under another era renders correctly.
+  const eras = useLiveQuery(() => db.eras.toArray(), [])
+  const dayEra = useMemo(() => eraForDate(eras ?? [], iso), [eras, iso])
+
   const categories = useLiveQuery(() => db.categories.toArray(), [])
+  const eraCategories = useMemo(
+    () => (categories ?? []).filter((c) => c.eraId === dayEra?.id),
+    [categories, dayEra?.id],
+  )
   const dayBlocks = useLiveQuery(
     () =>
       db.blocks
@@ -85,10 +96,15 @@ export default function TransactionsTab() {
   )
 
   // The budget in effect for the viewed day drives "time left to assign".
+  // Only the day's era's budgets are considered.
   const budgets = useLiveQuery(() => db.budgets.toArray(), [])
+  const eraBudgets = useMemo(
+    () => (budgets ?? []).filter((b) => b.eraId === dayEra?.id),
+    [budgets, dayEra?.id],
+  )
   const activeBudget = useMemo(
-    () => resolveBudget(budgets ?? [], iso),
-    [budgets, iso],
+    () => resolveBudget(eraBudgets, iso),
+    [eraBudgets, iso],
   )
   const allocations = useLiveQuery(
     () =>
@@ -130,7 +146,7 @@ export default function TransactionsTab() {
   const remainingByCategory = useMemo(() => {
     const rem = new Map<string, number>()
     if (!activeBudget) return rem
-    const coveredDays = periodCoveredDays(budgets ?? [], activeBudget, iso)
+    const coveredDays = periodCoveredDays(eraBudgets, activeBudget, iso)
     const spent = new Map<string, number>()
     for (const b of periodBlocks ?? []) {
       if (!coveredDays.has(isoDate(new Date(b.start)))) continue
@@ -139,7 +155,7 @@ export default function TransactionsTab() {
     for (const a of allocations ?? [])
       rem.set(a.categoryId, a.minutes - (spent.get(a.categoryId) ?? 0))
     return rem
-  }, [activeBudget, budgets, iso, periodBlocks, allocations])
+  }, [activeBudget, eraBudgets, iso, periodBlocks, allocations])
 
   const pastStarts = useMemo(
     () => starts.filter((s) => isBlockPast(s, now)),
@@ -327,7 +343,7 @@ export default function TransactionsTab() {
 
         {isPicking && pickerFor && (
           <CategoryPicker
-            categories={categories ?? []}
+            categories={eraCategories}
             remainingByCategory={remainingByCategory}
             showClear={catId !== undefined}
             onPick={(id) => categorizeBlock(start, id)}
@@ -527,7 +543,7 @@ export default function TransactionsTab() {
             </button>
             {bulkPicker && (
               <CategoryPicker
-                categories={categories ?? []}
+                categories={eraCategories}
                 remainingByCategory={remainingByCategory}
                 showClear
                 onPick={(id) => {

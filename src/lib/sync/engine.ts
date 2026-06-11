@@ -19,6 +19,7 @@ import {
   type BudgetAllocation,
   type Category,
   type Change,
+  type Era,
   type SyncMeta,
   type SyncRecordType,
 } from '../../db'
@@ -99,10 +100,14 @@ export async function setupSync(opts: {
     const categories = await db.categories.toArray()
     const budgets = await db.budgets.toArray()
     const allocations = await db.budgetAllocations.toArray()
+    const eras = await db.eras.toArray()
 
     const rows: Change[] = []
     for (const b of blocks) {
       rows.push(makeBackfillRow(deviceId, ++seq, 'block', String(b.start), b, now))
+    }
+    for (const e of eras) {
+      rows.push(makeBackfillRow(deviceId, ++seq, 'era', e.id, e, now))
     }
     for (const c of categories) {
       rows.push(makeBackfillRow(deviceId, ++seq, 'category', c.id, c, now))
@@ -322,6 +327,9 @@ async function deleteRecord(
     case 'allocation':
       await db.budgetAllocations.delete(recordId)
       return
+    case 'era':
+      await db.eras.delete(recordId)
+      return
   }
 }
 
@@ -341,6 +349,9 @@ async function putRecord(
       return
     case 'allocation':
       await db.budgetAllocations.put(payload as BudgetAllocation)
+      return
+    case 'era':
+      await db.eras.put(payload as Era)
       return
   }
 }

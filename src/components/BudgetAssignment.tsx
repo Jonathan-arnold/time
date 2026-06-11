@@ -19,7 +19,10 @@ export default function BudgetAssignment({ budget }: BudgetAssignmentProps) {
   // The single category row currently being edited.
   const [editingId, setEditingId] = useState<string | null>(null)
 
-  const categories = useLiveQuery(() => db.categories.toArray(), [])
+  const categories = useLiveQuery(
+    () => db.categories.where('eraId').equals(budget.eraId).toArray(),
+    [budget.eraId],
+  )
   const allocations = useLiveQuery(
     () => db.budgetAllocations.where('budgetId').equals(budget.id).toArray(),
     [budget.id],

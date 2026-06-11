@@ -33,7 +33,7 @@ export interface PullResponse {
 
 /** Shape sealed inside each row's ciphertext. */
 export interface SealedChange {
-  recordType: 'block' | 'category' | 'budget' | 'allocation'
+  recordType: 'block' | 'category' | 'budget' | 'allocation' | 'era'
   recordId: string
   op: 'put' | 'del'
   payload: unknown

@@ -1,11 +1,12 @@
-import { db, mutate } from './db'
+import { db, DEFAULT_ERA_ID, mutate } from './db'
+import { isoDate } from '../lib/time'
 import type { Category } from './types'
 
 /**
  * Default categories created the first time the app runs. Sleep is a real
  * category and gets budgeted like anything else.
  */
-const DEFAULT_CATEGORIES: Category[] = [
+const DEFAULT_CATEGORIES: Omit<Category, 'eraId'>[] = [
   { id: 'sleep', name: 'Sleep', parentId: null, color: '#6366f1', order: 0 },
   { id: 'work', name: 'Work', parentId: null, color: '#0ea5e9', order: 1 },
   { id: 'meals', name: 'Meals', parentId: null, color: '#f59e0b', order: 2 },
@@ -18,10 +19,31 @@ const DEFAULT_CATEGORIES: Category[] = [
 
 /**
  * Populate first-run defaults. Idempotent — safe to call on every startup.
+ * The count checks live inside one transaction so concurrent calls (e.g.
+ * React strict-mode double effects) serialize instead of double-inserting.
  */
 export async function ensureSeeded(): Promise<void> {
-  const count = await db.categories.count()
-  if (count === 0) {
-    await mutate(() => db.categories.bulkAdd(DEFAULT_CATEGORIES))
-  }
+  await mutate(async () => {
+    if ((await db.eras.count()) === 0) {
+      await db.eras.add({
+        id: DEFAULT_ERA_ID,
+        name: 'First era',
+        startDate: isoDate(new Date()),
+        endDate: null,
+        createdAt: Date.now(),
+      })
+    }
+    if ((await db.categories.count()) === 0) {
+      // Seed into the current era — normally the default era just created,
+      // but a device that synced eras before seeding lands in the right one.
+      const eras = await db.eras.toArray()
+      const eraId =
+        eras.find((e) => e.endDate === null)?.id ??
+        eras[0]?.id ??
+        DEFAULT_ERA_ID
+      await db.categories.bulkAdd(
+        DEFAULT_CATEGORIES.map((c) => ({ ...c, eraId })),
+      )
+    }
+  })
 }

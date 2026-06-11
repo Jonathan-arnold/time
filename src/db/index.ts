@@ -1,5 +1,6 @@
 export {
   db,
+  DEFAULT_ERA_ID,
   TimeBudgetDB,
   mutate,
   withSuppressedHooks,
@@ -14,6 +15,7 @@ export type {
   BudgetType,
   Category,
   Change,
+  Era,
   Recurrence,
   SyncMeta,
   SyncOp,

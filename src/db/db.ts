@@ -1,13 +1,22 @@
 import Dexie, { type EntityTable } from 'dexie'
+import { isoDate } from '../lib/time'
 import type {
   Block,
   Budget,
   BudgetAllocation,
   Category,
   Change,
+  Era,
   SyncMeta,
   SyncRecordType,
 } from './types'
+
+/**
+ * Fixed id for the era created on first run / migration. Deterministic so
+ * two devices that migrate independently converge on the same record when
+ * they later sync, instead of producing two overlapping eras.
+ */
+export const DEFAULT_ERA_ID = 'era-1'
 
 /**
  * The single IndexedDB database backing the app. All data lives in the
@@ -18,6 +27,7 @@ export class TimeBudgetDB extends Dexie {
   categories!: EntityTable<Category, 'id'>
   budgets!: EntityTable<Budget, 'id'>
   budgetAllocations!: EntityTable<BudgetAllocation, 'id'>
+  eras!: EntityTable<Era, 'id'>
   changes!: EntityTable<Change, 'id'>
   syncMeta!: EntityTable<SyncMeta, 'id'>
 
@@ -89,6 +99,42 @@ export class TimeBudgetDB extends Dexie {
             b.favorite ??= false
           }),
       )
+    // v7 adds eras: categories and budgets become era-scoped. Existing data
+    // is folded into a single era covering all history (back to the earliest
+    // categorized block).
+    this.version(7)
+      .stores({
+        ...v5to6Stores,
+        categories: 'id, parentId, order, eraId',
+        budgets: 'id, type, priority, eraId',
+        eras: 'id, startDate',
+      })
+      .upgrade(async (tx) => {
+        const firstBlock = (await tx
+          .table('blocks')
+          .orderBy('start')
+          .first()) as Block | undefined
+        const era: Era = {
+          id: DEFAULT_ERA_ID,
+          name: 'First era',
+          startDate: isoDate(new Date(firstBlock?.start ?? Date.now())),
+          endDate: null,
+          createdAt: Date.now(),
+        }
+        await tx.table('eras').add(era)
+        await tx
+          .table('categories')
+          .toCollection()
+          .modify((c: Category) => {
+            c.eraId ??= DEFAULT_ERA_ID
+          })
+        await tx
+          .table('budgets')
+          .toCollection()
+          .modify((b: Budget) => {
+            b.eraId ??= DEFAULT_ERA_ID
+          })
+      })
   }
 }
 
@@ -103,7 +149,15 @@ export const db = new TimeBudgetDB()
 export function mutate<T>(fn: () => Promise<T> | T): Promise<T> {
   return db.transaction(
     'rw',
-    [db.blocks, db.categories, db.budgets, db.budgetAllocations, db.changes, db.syncMeta],
+    [
+      db.blocks,
+      db.categories,
+      db.budgets,
+      db.budgetAllocations,
+      db.eras,
+      db.changes,
+      db.syncMeta,
+    ],
     fn,
   )
 }
@@ -117,6 +171,7 @@ function recordTypeFor(table: string): SyncRecordType | null {
   if (table === 'categories') return 'category'
   if (table === 'budgets') return 'budget'
   if (table === 'budgetAllocations') return 'allocation'
+  if (table === 'eras') return 'era'
   return null
 }
 
@@ -244,7 +299,13 @@ function appendChange(
  * includes `changes` and `syncMeta`.
  */
 function installChangeLogHooks() {
-  const tables = ['blocks', 'categories', 'budgets', 'budgetAllocations'] as const
+  const tables = [
+    'blocks',
+    'categories',
+    'budgets',
+    'budgetAllocations',
+    'eras',
+  ] as const
   for (const tableName of tables) {
     const type = recordTypeFor(tableName)!
     const table = db.table(tableName)

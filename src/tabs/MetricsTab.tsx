@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../db'
-import type { BudgetType } from '../db'
+import type { BudgetType, Era } from '../db'
 import BudgetProgress from '../components/BudgetProgress'
 import DateRangePicker from '../components/DateRangePicker'
 import { categoryMap } from '../lib/categories'
@@ -26,10 +26,23 @@ const FALLBACK_COLOR = '#cbd5e1'
 /** A node in the aggregated minutes tree; `minutes` is the whole subtree. */
 type Node = { id: string; minutes: number; children: Map<string, Node> }
 
-export default function MetricsTab() {
-  const categories = useLiveQuery(() => db.categories.toArray(), [])
-  const blocks = useLiveQuery(() => db.blocks.toArray(), [])
-  const budgets = useLiveQuery(() => db.budgets.toArray(), [])
+export default function MetricsTab({ era }: { era: Era }) {
+  const categories = useLiveQuery(
+    () => db.categories.where('eraId').equals(era.id).toArray(),
+    [era.id],
+  )
+  // Only blocks inside the era's date span count toward its metrics.
+  const blocks = useLiveQuery(() => {
+    const lo = parseIsoDate(era.startDate).getTime()
+    if (era.endDate === null)
+      return db.blocks.where('start').aboveOrEqual(lo).toArray()
+    const hi = parseIsoDate(era.endDate).getTime() + 86_400_000
+    return db.blocks.where('start').between(lo, hi, true, false).toArray()
+  }, [era.id, era.startDate, era.endDate])
+  const budgets = useLiveQuery(
+    () => db.budgets.where('eraId').equals(era.id).toArray(),
+    [era.id],
+  )
 
   /** Top-level tab: overview, or one of the budget kinds. */
   const [top, setTop] = useState<typeof OVERVIEW | BudgetType>(OVERVIEW)

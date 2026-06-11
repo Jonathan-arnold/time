@@ -1,15 +1,18 @@
-import { useEffect, useState } from 'react'
-import { ensureSeeded } from './db'
+import { useEffect, useMemo, useState } from 'react'
+import { useLiveQuery } from 'dexie-react-hooks'
+import { db, ensureSeeded } from './db'
 import TransactionsTab from './tabs/TransactionsTab'
 import BudgetsTab from './tabs/BudgetsTab'
 import MetricsTab from './tabs/MetricsTab'
 import SyncSettings from './components/SyncSettings'
+import EraSwitcher from './components/EraSwitcher'
+import { currentEra } from './lib/eras'
 import { installAutoSync } from './lib/sync'
 
 const TABS = [
-  { id: 'transactions', label: 'Past', sub: 'Categorize', Component: TransactionsTab },
-  { id: 'metrics', label: 'Present', sub: 'Metrics', Component: MetricsTab },
-  { id: 'budgets', label: 'Future', sub: 'Budgets', Component: BudgetsTab },
+  { id: 'transactions', label: 'Past', sub: 'Categorize' },
+  { id: 'metrics', label: 'Present', sub: 'Metrics' },
+  { id: 'budgets', label: 'Future', sub: 'Budgets' },
 ] as const
 
 type TabId = (typeof TABS)[number]['id']
@@ -17,7 +20,16 @@ type TabId = (typeof TABS)[number]['id']
 export default function App() {
   const [active, setActive] = useState<TabId>('transactions')
   const [syncOpen, setSyncOpen] = useState(false)
-  const ActiveComponent = TABS.find((t) => t.id === active)!.Component
+
+  // The era being viewed in the Budgets and Metrics tabs. Null means "the
+  // current era", so the view follows along when a new era begins.
+  const eras = useLiveQuery(() => db.eras.toArray(), [])
+  const [viewingEraId, setViewingEraId] = useState<string | null>(null)
+  const viewingEra = useMemo(() => {
+    const list = eras ?? []
+    return list.find((e) => e.id === viewingEraId) ?? currentEra(list)
+  }, [eras, viewingEraId])
+  const viewingPast = viewingEra?.endDate != null
 
   // A brief calibration flourish on first load.
   const [calibrating, setCalibrating] = useState(true)
@@ -82,6 +94,11 @@ export default function App() {
               </button>
             ))}
           </nav>
+            <EraSwitcher
+              eras={eras ?? []}
+              viewing={viewingEra}
+              onSelect={setViewingEraId}
+            />
             <button
               onClick={() => setSyncOpen(true)}
               className="rounded-lg border border-slate-200 bg-white p-3 text-slate-500 transition-colors hover:text-slate-900 sm:p-2"
@@ -107,7 +124,30 @@ export default function App() {
       {syncOpen && <SyncSettings onClose={() => setSyncOpen(false)} />}
 
       <main className="mx-auto max-w-5xl px-4 py-5 sm:px-6 sm:py-8">
-        <ActiveComponent />
+        {/* Reviewing a past era scopes Budgets and Metrics to it. */}
+        {viewingPast && active !== 'transactions' && viewingEra && (
+          <div className="mb-5 flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <span>
+              Viewing <span className="font-semibold">{viewingEra.name}</span>,
+              a past era.
+            </span>
+            <button
+              onClick={() => setViewingEraId(null)}
+              className="ml-auto rounded-lg border border-amber-300 bg-white px-3 py-1 text-sm font-medium text-amber-800 transition-colors hover:bg-amber-100"
+            >
+              Back to now
+            </button>
+          </div>
+        )}
+        {active === 'transactions' ? (
+          <TransactionsTab />
+        ) : !viewingEra ? (
+          <div className="text-slate-400">Loading…</div>
+        ) : active === 'metrics' ? (
+          <MetricsTab key={viewingEra.id} era={viewingEra} />
+        ) : (
+          <BudgetsTab key={viewingEra.id} era={viewingEra} />
+        )}
       </main>
 
       {/* First-load flourish. */}

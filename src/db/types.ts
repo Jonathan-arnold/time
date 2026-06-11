@@ -2,8 +2,25 @@
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6
 
 /**
+ * A continuous stretch of time with its own categories and budgets. Eras
+ * partition the timeline: each one begins the day after the previous one
+ * ends, and the current era has no end date. Past eras stay frozen — their
+ * categories and budgets are kept as they were so metrics can be reviewed.
+ */
+export interface Era {
+  id: string
+  name: string
+  /** Inclusive ISO date (yyyy-MM-dd) the era begins. */
+  startDate: string
+  /** Inclusive ISO end date; null marks the current era. */
+  endDate: string | null
+  createdAt: number
+}
+
+/**
  * A category of time. Categories nest via `parentId`; a null parent is a
- * top-level category.
+ * top-level category. Categories belong to one era; starting a new era can
+ * copy the previous era's tree so history stays untouched by later edits.
  */
 export interface Category {
   id: string
@@ -13,6 +30,8 @@ export interface Category {
   color: string
   /** Sort order among siblings. */
   order: number
+  /** The era this category belongs to. */
+  eraId: string
 }
 
 /**
@@ -75,6 +94,8 @@ export interface Budget {
    * elsewhere.
    */
   favorite: boolean
+  /** The era this budget belongs to. */
+  eraId: string
   createdAt: number
 }
 
@@ -89,7 +110,12 @@ export interface BudgetAllocation {
   minutes: number
 }
 
-export type SyncRecordType = 'block' | 'category' | 'budget' | 'allocation'
+export type SyncRecordType =
+  | 'block'
+  | 'category'
+  | 'budget'
+  | 'allocation'
+  | 'era'
 export type SyncOp = 'put' | 'del'
 
 /**
