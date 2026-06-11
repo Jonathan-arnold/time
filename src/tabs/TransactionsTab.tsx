@@ -4,13 +4,19 @@ import DaySelector from '../components/DaySelector'
 import { db, mutate } from '../db'
 import type { Block, BudgetAllocation, Category } from '../db'
 import { categoryMap } from '../lib/categories'
-import { budgetPeriod, periodCoveredDays, resolveBudget } from '../lib/budget'
+import {
+  budgetCoversDate,
+  budgetPeriod,
+  periodCoveredDays,
+  resolveBudget,
+} from '../lib/budget'
 import { eraForDate } from '../lib/eras'
 import {
   BLOCK_MS,
   dayBlockStarts,
   formatBlockTime,
   formatDuration,
+  formatTimeOfDay,
   isBlockPast,
   isoDate,
   parseIsoDate,
@@ -106,6 +112,54 @@ export default function TransactionsTab() {
     () => resolveBudget(eraBudgets, iso),
     [eraBudgets, iso],
   )
+
+  // Every budget whose schedule covers the viewed day contributes its
+  // coverage window. One-offs override recurring budgets on their days, so
+  // when any one-off applies only one-off windows count.
+  const coveringBudgets = useMemo(() => {
+    const covering = eraBudgets.filter((b) => budgetCoversDate(b, iso))
+    const oneoffs = covering.filter((b) => b.type === 'oneoff')
+    return oneoffs.length > 0 ? oneoffs : covering
+  }, [eraBudgets, iso])
+
+  // The union of those windows, as merged sorted [start, end) minute spans.
+  const coverWindows = useMemo(() => {
+    const spans = coveringBudgets
+      .map((b) => [b.coverStart, b.coverEnd] as [number, number])
+      .sort((a, b) => a[0] - b[0])
+    const merged: [number, number][] = []
+    for (const [start, end] of spans) {
+      const last = merged[merged.length - 1]
+      if (last && start <= last[1]) last[1] = Math.max(last[1], end)
+      else merged.push([start, end])
+    }
+    return merged
+  }, [coveringBudgets])
+
+  // Only hours inside some budget's coverage window are shown for processing.
+  const coveredStarts = useMemo(
+    () =>
+      starts.filter((s) => {
+        const d = new Date(s)
+        const minuteOfDay = d.getHours() * 60 + d.getMinutes()
+        return coverWindows.some(([lo, hi]) => minuteOfDay >= lo && minuteOfDay < hi)
+      }),
+    [starts, coverWindows],
+  )
+  // A day no budget covers has nothing to categorize at all. (Only once
+  // budgets have actually loaded — `budgets` is undefined until then.)
+  const noBudgetDay = budgets !== undefined && coveringBudgets.length === 0
+  // Whether the windows actually trim the day — drives the explanatory note.
+  const windowTrimsDay =
+    coverWindows.length > 0 &&
+    !(
+      coverWindows.length === 1 &&
+      coverWindows[0][0] === 0 &&
+      coverWindows[0][1] >= 24 * 60
+    )
+  const windowLabel = coverWindows
+    .map(([lo, hi]) => `${formatTimeOfDay(lo)} – ${formatTimeOfDay(hi)}`)
+    .join(', ')
   const allocations = useLiveQuery(
     () =>
       activeBudget
@@ -158,13 +212,13 @@ export default function TransactionsTab() {
   }, [activeBudget, eraBudgets, iso, periodBlocks, allocations])
 
   const pastStarts = useMemo(
-    () => starts.filter((s) => isBlockPast(s, now)),
-    [starts, now],
+    () => coveredStarts.filter((s) => isBlockPast(s, now)),
+    [coveredStarts, now],
   )
   // A short peek at what's coming — shown but not categorizable.
   const futurePreview = useMemo(
-    () => starts.filter((s) => !isBlockPast(s, now)).slice(0, 4),
-    [starts, now],
+    () => coveredStarts.filter((s) => !isBlockPast(s, now)).slice(0, 4),
+    [coveredStarts, now],
   )
   const toProcess = pastStarts.filter((s) => !blockCategory.has(s)).length
   const categorizedCount = pastStarts.length - toProcess
@@ -223,7 +277,7 @@ export default function TransactionsTab() {
       const hi = Math.max(anchor!, start)
       setSelected((prev) => {
         const next = new Set(prev)
-        for (const s of starts) {
+        for (const s of coveredStarts) {
           if (s >= lo && s <= hi && isBlockPast(s, now)) next.add(s)
         }
         return next
@@ -459,9 +513,27 @@ export default function TransactionsTab() {
         )}
       </div>
 
-      {allFuture ? (
+      {windowTrimsDay && !allFuture && (
+        <p className="mb-2 px-1 text-xs text-slate-400">
+          Showing budget hours: {windowLabel}
+        </p>
+      )}
+
+      {noBudgetDay ? (
+        <div className="rounded-xl border border-dashed border-slate-300 px-6 py-16 text-center text-sm">
+          <span className="font-medium text-emerald-600">All caught up</span>
+          <span className="text-slate-400">
+            {' '}
+            — no budget covers this day.
+          </span>
+        </div>
+      ) : allFuture ? (
         <div className="rounded-xl border border-dashed border-slate-300 px-6 py-16 text-center text-sm text-slate-400">
-          This day is in the future — nothing to process yet.
+          {isToday && windowTrimsDay
+            ? `Budget hours start at ${formatTimeOfDay(
+                coverWindows[0][0],
+              )} — nothing to process yet.`
+            : 'This day is in the future — nothing to process yet.'}
         </div>
       ) : showCategorized ? (
         <ul className="overflow-hidden rounded-xl border border-slate-200 bg-white">
